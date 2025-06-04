@@ -1,0 +1,6 @@
+django==4.2.7
+djangorestframework
+djangorestframework-simplejwt
+mysqlclient
+python-dotenv
+django-cors-headers
