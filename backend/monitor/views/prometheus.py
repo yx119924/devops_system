@@ -12,7 +12,7 @@ import requests
 from rest_framework import serializers
 from rest_framework.decorators import action
 
-from dvadmin.monitor.models import PrometheusSource
+from dvadmin.monitor.models import PrometheusSource, SOURCE_TYPE_CHOICES
 from dvadmin.utils.json_response import DetailResponse, ErrorResponse
 from dvadmin.utils.serializers import CustomModelSerializer
 from dvadmin.utils.viewset import CustomModelViewSet
@@ -20,9 +20,13 @@ from dvadmin.utils.viewset import CustomModelViewSet
 
 class PrometheusSourceSerializer(CustomModelSerializer):
     status_label = serializers.SerializerMethodField()
+    source_type_label = serializers.SerializerMethodField()
 
     def get_status_label(self, obj):
         return dict(PrometheusSource._meta.get_field('status').choices).get(obj.status, obj.status)
+
+    def get_source_type_label(self, obj):
+        return dict(SOURCE_TYPE_CHOICES).get(obj.source_type, obj.source_type)
 
     class Meta:
         model = PrometheusSource
@@ -31,11 +35,11 @@ class PrometheusSourceSerializer(CustomModelSerializer):
 
 
 class PrometheusSourceViewSet(CustomModelViewSet):
-    """Prometheus 数据源"""
+    """监控数据源（Prometheus / Alertmanager）"""
     queryset = PrometheusSource.objects.all()
     serializer_class = PrometheusSourceSerializer
     search_fields = ['name', 'url']
-    filter_fields = ['status']
+    filter_fields = ['status', 'source_type']
 
     def _get_source(self):
         return self.get_object()
@@ -137,7 +141,12 @@ class PrometheusSourceViewSet(CustomModelViewSet):
 
     @action(methods=['GET'], detail=False, url_path='all')
     def all_list(self, request, *args, **kwargs):
-        """下拉选项：返回全部启用数据源"""
+        """下拉选项：返回启用数据源，默认只返回 Prometheus（查询页专用）。
+
+        显式传 ?source_type=alertmanager 可获取 Alertmanager 列表。
+        """
         queryset = self.filter_queryset(self.get_queryset())
-        data = queryset.filter(status=1).order_by('sort').values('id', 'name', 'url')
-        return DetailResponse(data=data, msg="获取成功")
+        if not request.query_params.get('source_type'):
+            queryset = queryset.filter(source_type='prometheus')
+        data = queryset.filter(status=1).order_by('sort').values('id', 'name', 'url', 'source_type')
+        return DetailResponse(data=list(data), msg="获取成功")

@@ -53,11 +53,24 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           form: { rules: [{ required: true, message: '请输入数据源名称' }], component: { placeholder: '如 本机 Prometheus' } },
           column: { minWidth: 160 },
         },
+        source_type: {
+          title: '类型',
+          type: 'dict-select',
+          search: { show: true },
+          dict: dict({
+            data: [
+              { value: 'prometheus', label: 'Prometheus', color: 'primary' },
+              { value: 'alertmanager', label: 'Alertmanager', color: 'warning' },
+            ],
+          }),
+          column: { width: 130, align: 'center' },
+          form: { value: 'prometheus', rules: [{ required: true, message: '请选择类型' }] },
+        },
         url: {
-          title: 'Prometheus 地址',
+          title: '监控地址',
           type: 'input',
           search: { show: true, component: { placeholder: '请输入地址' } },
-          form: { rules: [{ required: true, message: '请输入 Prometheus 地址' }], component: { placeholder: '如 http://172.30.0.16:9090' } },
+          form: { rules: [{ required: true, message: '请输入监控地址' }], component: { placeholder: '如 http://192.168.1.100:9090' } },
           column: { minWidth: 240 },
         },
         status: {

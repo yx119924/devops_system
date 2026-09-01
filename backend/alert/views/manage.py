@@ -9,19 +9,24 @@ import requests
 import yaml
 from rest_framework.decorators import api_view
 
-from dvadmin.alert.services import ALERTMANAGER_URL
+from dvadmin.alert.services import _require_url
 from dvadmin.utils.json_response import DetailResponse, ErrorResponse
 
-AM_ALERTS = f"{ALERTMANAGER_URL}/api/v2/alerts"
-AM_SILENCES = f"{ALERTMANAGER_URL}/api/v2/silences"
-AM_STATUS = f"{ALERTMANAGER_URL}/api/v2/status"
+
+def _am_url(path):
+    """拼 Alertmanager 接口地址。
+
+    注意：地址来自数据库（数据源管理页），必须在请求时动态取，
+    不能像旧版那样在模块 import 时拼成常量——否则改了页面配置也不生效。
+    """
+    return f"{_require_url('alertmanager', 'Alertmanager')}{path}"
 
 
 @api_view(["GET"])
 def active_alerts(request):
     """活跃告警列表：透传 Alertmanager /api/v2/alerts，规整为前端易用结构"""
     try:
-        resp = requests.get(AM_ALERTS, timeout=10)
+        resp = requests.get(_am_url("/api/v2/alerts"), timeout=10)
         resp.raise_for_status()
         items = []
         for a in resp.json():
@@ -56,7 +61,7 @@ def silence_list_create(request):
     """静默管理：GET 返回静默列表；POST 创建静默（body: matchers + comment + duration_minutes）"""
     if request.method == "GET":
         try:
-            resp = requests.get(AM_SILENCES, timeout=10)
+            resp = requests.get(_am_url("/api/v2/silences"), timeout=10)
             resp.raise_for_status()
             return DetailResponse(data=resp.json(), msg="获取成功")
         except requests.exceptions.RequestException as e:
@@ -83,7 +88,7 @@ def silence_list_create(request):
         "comment": body.get("comment") or "",
     }
     try:
-        resp = requests.post(AM_SILENCES, json=payload, timeout=10)
+        resp = requests.post(_am_url("/api/v2/silences"), json=payload, timeout=10)
         if resp.status_code in (200, 201):
             return DetailResponse(data=resp.json(), msg="静默已创建")
         return ErrorResponse(msg=f"创建静默失败：HTTP {resp.status_code} {resp.text[:200]}")
@@ -98,7 +103,7 @@ def silence_delete(request, silence_id):
     """删除静默：DELETE /api/alert/manage/silences/{silence_id}/"""
     try:
         # Alertmanager 删除端点是单数 /api/v2/silence/{id}
-        url = f"{ALERTMANAGER_URL}/api/v2/silence/{silence_id}"
+        url = _am_url(f"/api/v2/silence/{silence_id}")
         resp = requests.delete(url, timeout=10)
         if resp.status_code == 200:
             return DetailResponse(msg="静默已删除")
@@ -113,7 +118,7 @@ def silence_delete(request, silence_id):
 def route_summary(request):
     """路由收敛概览：解析 Alertmanager route + receivers，展示告警如何收敛/分发"""
     try:
-        resp = requests.get(AM_STATUS, timeout=10)
+        resp = requests.get(_am_url("/api/v2/status"), timeout=10)
         resp.raise_for_status()
         original = (resp.json().get("config") or {}).get("original", "")
         parsed = yaml.safe_load(original) or {}

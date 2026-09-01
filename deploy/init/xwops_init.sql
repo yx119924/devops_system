@@ -2062,6 +2062,7 @@ CREATE TABLE `monitor_prometheus_source` (
   `update_datetime` datetime(6) DEFAULT NULL,
   `create_datetime` datetime(6) DEFAULT NULL,
   `name` varchar(64) NOT NULL,
+  `source_type` varchar(16) NOT NULL,
   `url` varchar(255) NOT NULL,
   `status` int NOT NULL,
   `sort` int DEFAULT NULL,
@@ -2077,7 +2078,7 @@ CREATE TABLE `monitor_prometheus_source` (
 
 LOCK TABLES `monitor_prometheus_source` WRITE;
 /*!40000 ALTER TABLE `monitor_prometheus_source` DISABLE KEYS */;
-INSERT INTO `monitor_prometheus_source` VALUES (1,NULL,'1',NULL,'2026-08-28 16:55:26.516454','2026-08-28 16:40:38.268092','本机 Prometheus','http://172.30.0.16:9090',1,1,NULL);
+INSERT INTO `monitor_prometheus_source` VALUES (1,NULL,'1',NULL,'2026-08-28 16:55:26.516454','2026-08-28 16:40:38.268092','本机 Prometheus','prometheus','http://172.30.0.16:9090',1,1,NULL),(2,NULL,'1',NULL,'2026-08-28 16:55:26.516454','2026-08-28 16:40:38.268092','本机 Alertmanager','alertmanager','http://172.30.0.18:9093',1,2,NULL);
 /*!40000 ALTER TABLE `monitor_prometheus_source` ENABLE KEYS */;
 UNLOCK TABLES;
 

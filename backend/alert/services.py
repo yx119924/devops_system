@@ -10,8 +10,31 @@ import yaml
 # Django 容器内路径（backend 挂载到 /backend），宿主机对应 backend/dvadmin/alert/rules
 RULES_DIR = "/backend/dvadmin/alert/rules"
 RULES_FILE = os.path.join(RULES_DIR, "devops_rules.yml")
-PROMETHEUS_URL = "http://172.30.0.16:9090"
-ALERTMANAGER_URL = "http://172.30.0.18:9093"
+
+# 注意：Prometheus / Alertmanager 地址不再硬编码，统一从「数据源管理」页读取
+# （dvadmin.monitor.models.PrometheusSource，source_type=prometheus / alertmanager）
+# 部署后请在 监控告警 → 数据源管理 页面添加对应记录，无需改代码。
+
+
+def get_monitor_url(source_type):
+    """从数据源表取地址（prometheus / alertmanager），无配置时返回空串。
+
+    延迟 import，避免 Django app 未就绪时模块级查询数据库。
+    """
+    from dvadmin.monitor.models import PrometheusSource
+
+    return PrometheusSource.get_url(source_type)
+
+
+def _require_url(source_type, label):
+    """取地址并在缺失时抛出明确错误，避免裸 ConnectionError 难以排查。"""
+    url = get_monitor_url(source_type)
+    if not url:
+        raise RuntimeError(
+            f"未配置{label}地址，请到「监控告警 → 数据源管理」页面添加一条"
+            f" source_type={source_type} 的启用记录"
+        )
+    return url
 
 
 def generate_rules():
@@ -44,7 +67,8 @@ def generate_rules():
 
 def reload_prometheus():
     """热加载 Prometheus 规则（需要 Prometheus 开启 --web.enable-lifecycle）"""
-    resp = requests.post(f"{PROMETHEUS_URL}/-/reload", timeout=10)
+    url = _require_url("prometheus", "Prometheus")
+    resp = requests.post(f"{url}/-/reload", timeout=10)
     return resp.status_code == 200
 
 
@@ -57,7 +81,8 @@ def sync_rules():
 
 def query_active_alerts():
     """查询 Alertmanager 当前活跃告警"""
-    resp = requests.get(f"{ALERTMANAGER_URL}/api/v2/alerts", timeout=10)
+    url = _require_url("alertmanager", "Alertmanager")
+    resp = requests.get(f"{url}/api/v2/alerts", timeout=10)
     resp.raise_for_status()
     return resp.json()
 

@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 import requests
 
 from dvadmin.alert.models import AlertRule, SEVERITY_CHOICES
-from dvadmin.alert.services import PROMETHEUS_URL, query_active_alerts, sync_rules
+from dvadmin.alert.services import _require_url, query_active_alerts, sync_rules
 from dvadmin.utils.json_response import DetailResponse, ErrorResponse
 from dvadmin.utils.serializers import CustomModelSerializer
 from dvadmin.utils.viewset import CustomModelViewSet
@@ -77,7 +77,8 @@ class AlertRuleViewSet(CustomModelViewSet):
         if not expr:
             return ErrorResponse(msg="缺少 expr 参数")
         try:
-            resp = requests.post(f"{PROMETHEUS_URL}/api/v1/query", data={'query': expr}, timeout=15)
+            url = _require_url("prometheus", "Prometheus")
+            resp = requests.post(f"{url}/api/v1/query", data={'query': expr}, timeout=15)
             resp.raise_for_status()
             return DetailResponse(data=resp.json(), msg="查询成功")
         except requests.exceptions.RequestException as e:
