@@ -1,0 +1,29 @@
+# Prometheus 配置（DevOps 平台监控聚合 + 告警）
+# 部署位置：/opt/devops-platform/docker_env/prometheus/prometheus.yml
+global:
+  scrape_interval: 30s      # 采集间隔 30s，控制数据量
+  evaluation_interval: 30s  # 规则评估间隔
+  external_labels:
+    monitor: 'devops'
+
+# 告警规则文件（由平台告警规则管理动态生成，挂载自 backend/dvadmin/alert/rules）
+rule_files:
+  - '/etc/prometheus/rules/*.yml'
+
+# 告警发送到 Alertmanager
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - '172.30.0.18:9093'
+
+scrape_configs:
+  # 宿主机基础指标（node_exporter，172.30.0.17:9100）
+  - job_name: 'node_exporter'
+    static_configs:
+      - targets: ['172.30.0.17:9100']
+
+  # Prometheus 自身指标
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['172.30.0.16:9090']

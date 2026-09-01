@@ -1,0 +1,100 @@
+from rest_framework import serializers
+from rest_framework.decorators import action
+
+import requests
+
+from dvadmin.alert.models import AlertRule, SEVERITY_CHOICES
+from dvadmin.alert.services import PROMETHEUS_URL, query_active_alerts, sync_rules
+from dvadmin.utils.json_response import DetailResponse, ErrorResponse
+from dvadmin.utils.serializers import CustomModelSerializer
+from dvadmin.utils.viewset import CustomModelViewSet
+
+
+class AlertRuleSerializer(CustomModelSerializer):
+    severity_label = serializers.SerializerMethodField()
+    group_name = serializers.CharField(source='group.name', read_only=True, default=None)
+    template_name = serializers.CharField(source='template.name', read_only=True, default=None)
+
+    def get_severity_label(self, obj):
+        return dict(SEVERITY_CHOICES).get(obj.severity, obj.severity)
+
+    class Meta:
+        model = AlertRule
+        fields = '__all__'
+        read_only_fields = ["id"]
+
+
+class AlertRuleViewSet(CustomModelViewSet):
+    """告警规则管理"""
+    queryset = AlertRule.objects.select_related('group', 'template').all()
+    serializer_class = AlertRuleSerializer
+    search_fields = ['name', 'expr', 'summary']
+    filter_fields = ['enabled', 'severity', 'template']
+
+    def filter_queryset(self, queryset):
+        """前端按列搜索「规则名称/PromQL」传 name=/expr=，需手动 icontains 模糊匹配。
+        其余字段（enabled/severity）走 django-filter 精确匹配。
+        """
+        q = self.request.query_params
+        name = q.get("name")
+        if name:
+            queryset = queryset.filter(name__icontains=name)
+        expr = q.get("expr")
+        if expr:
+            queryset = queryset.filter(expr__icontains=expr)
+        summary = q.get("summary")
+        if summary:
+            queryset = queryset.filter(summary__icontains=summary)
+        return super().filter_queryset(queryset)
+
+    def perform_create(self, serializer):
+        serializer.save()
+        sync_rules()
+
+    def perform_update(self, serializer):
+        serializer.save()
+        sync_rules()
+
+    def perform_destroy(self, instance):
+        instance.delete()
+        sync_rules()
+
+    @action(methods=['POST'], detail=False, url_path='reload')
+    def reload_rules(self, request):
+        """重新生成规则文件并热加载 Prometheus"""
+        try:
+            path, ok = sync_rules()
+            if ok:
+                return DetailResponse(data={'file': path}, msg="规则已同步并热加载")
+            return ErrorResponse(msg="规则文件已生成，但 Prometheus reload 失败")
+        except Exception as e:
+            return ErrorResponse(msg=f"同步规则失败：{e}")
+
+    @action(methods=['POST'], detail=False, url_path='preview')
+    def preview(self, request):
+        """预览表达式的即时查询结果，验证 PromQL 是否有效、是否有值"""
+        expr = (request.data or {}).get('expr', '')
+        if not expr:
+            return ErrorResponse(msg="缺少 expr 参数")
+        try:
+            resp = requests.post(f"{PROMETHEUS_URL}/api/v1/query", data={'query': expr}, timeout=15)
+            resp.raise_for_status()
+            return DetailResponse(data=resp.json(), msg="查询成功")
+        except requests.exceptions.RequestException as e:
+            return ErrorResponse(msg=f"表达式查询失败：{e}")
+
+    @action(methods=['GET'], detail=False, url_path='active_alerts')
+    def active_alerts(self, request):
+        """查询 Alertmanager 当前活跃告警"""
+        try:
+            data = query_active_alerts()
+            return DetailResponse(data=data, msg="获取成功")
+        except Exception as e:
+            return ErrorResponse(msg=f"查询活跃告警失败：{e}")
+
+    @action(methods=['GET'], detail=False, url_path='all')
+    def all_list(self, request, *args, **kwargs):
+        """下拉选项：返回全部启用规则"""
+        data = self.filter_queryset(self.get_queryset()).filter(enabled=True) \
+            .order_by('severity', '-create_datetime').values('id', 'name', 'severity')
+        return DetailResponse(data=data, msg="获取成功")

@@ -1,0 +1,19 @@
+# Alertmanager 配置（DevOps 平台告警）
+# 部署位置：/opt/devops-platform/docker_env/alertmanager/alertmanager.yml
+global:
+  resolve_timeout: 5m
+
+# 路由：按告警名 + 级别分组，收敛发送
+route:
+  receiver: 'platform'
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+# 接收器：平台 webhook receiver（分发到飞书/钉钉/企微/邮箱）
+receivers:
+  - name: 'platform'
+    webhook_configs:
+      - url: 'http://172.30.0.12:8000/api/alert/webhook/receiver/'
+        send_resolved: true

@@ -1,0 +1,71 @@
+version: "3"
+# =====================================================================
+#  XwOps 平台 - 外接已有 MySQL/Redis 版（场景 B）
+#  适用：内网已经部署好 MySQL 和 Redis，不重复起这两个容器。
+#
+#  与完整版的区别：
+#   1. 删掉了 dvadmin3-mysql / dvadmin3-redis 两个服务（内网已有）
+#   2. 删掉了 django/celery 的 depends_on
+#   3. 后端连接内网 MySQL/Redis 的地址改在 backend/conf/env.py 里配
+#      （见 init_external.sh 的说明，DATABASE_HOST / REDIS_HOST 填内网 IP）
+#
+#  用法：把本文件复制为新服务器 /opt/devops-platform/docker-compose.yml
+# =====================================================================
+services:
+  dvadmin3-web:
+    container_name: dvadmin3-web
+    image: devops-platform-dvadmin3-web:latest
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./docker_env/nginx/my.conf:/etc/nginx/conf.d/my.conf
+      - ./backend/media:/backend/media
+    expose:
+      - "8080"
+    restart: always
+    networks:
+      network:
+        ipv4_address: 172.30.0.11
+
+  dvadmin3-django:
+    image: devops-platform-dvadmin3-django:latest
+    container_name: dvadmin3-django
+    working_dir: /backend
+    environment:
+      PYTHONUNBUFFERED: 1
+      TZ: Asia/Shanghai
+    volumes:
+      - ./backend:/backend
+      - ./logs/log:/var/log
+    ports:
+      - "8000:8000"
+    expose:
+      - "8000"
+    restart: always
+    networks:
+      network:
+        ipv4_address: 172.30.0.12
+
+  dvadmin3-celery:
+    image: devops-platform-dvadmin3-celery:latest
+    container_name: dvadmin3-celery
+    working_dir: /backend
+    environment:
+      PYTHONUNBUFFERED: 1
+      TZ: Asia/Shanghai
+    volumes:
+      - ./backend:/backend
+      - ./logs/log:/var/log
+    restart: always
+    networks:
+      network:
+        ipv4_address: 172.30.0.14
+
+networks:
+  network:
+    ipam:
+      driver: default
+      config:
+        - subnet: '172.30.0.0/16'

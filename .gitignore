@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Node / Frontend
+node_modules/
+dist/
+*.local
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Docker / env (NEVER commit secrets)
+.env
+.env.local
+.env.*.local
+docker_env/
+
+# Backups / local archives
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+deploy_package/
+
+# Tests / coverage
+.coverage
+htmlcov/
+.tox/
+
+# Django
+*.sqlite3
+media/
+staticfiles/
+
+# Build artifacts
+build/
+dist/
+*.egg
