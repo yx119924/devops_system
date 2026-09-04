@@ -1,5 +1,6 @@
 import * as api from './api';
-import { dict, UserPageQuery, AddReq, DelReq, EditReq, CreateCrudOptionsProps, CreateCrudOptionsRet } from '@fast-crud/fast-crud';
+import { dict, UserPageQuery, AddReq, DelReq, EditReq, CreateCrudOptionsProps, CreateCrudOptionsRet, compute } from '@fast-crud/fast-crud';
+import { BtnPermissionStore } from '/@/stores/btnPermission';
 
 export const createCrudOptions = function ({ crudExpose }: CreateCrudOptionsProps): CreateCrudOptionsRet {
   const pageRequest = async (query: UserPageQuery) => await api.GetList(query);
@@ -7,9 +8,19 @@ export const createCrudOptions = function ({ crudExpose }: CreateCrudOptionsProp
   const delRequest = async ({ row }: DelReq) => await api.DelObj(row.id);
   const addRequest = async ({ form }: AddReq) => await api.AddObj(form);
 
+  const btnStore = BtnPermissionStore();
+  const hasAuth = (code: string) => (btnStore.data || []).includes(code);
+
   return {
     crudOptions: {
       request: { pageRequest, addRequest, editRequest, delRequest },
+      actionbar: { buttons: { add: { show: hasAuth('credential:Create') } } },
+      rowHandle: {
+        buttons: {
+          edit: { show: compute(() => hasAuth('credential:Update')) },
+          remove: { show: compute(() => hasAuth('credential:Delete')) },
+        },
+      },
       columns: {
         _index: {
           title: '序号',

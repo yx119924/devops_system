@@ -1,5 +1,6 @@
 import * as api from './api';
-import { dict, UserPageQuery, AddReq, DelReq, EditReq, CreateCrudOptionsProps, CreateCrudOptionsRet } from '@fast-crud/fast-crud';
+import { dict, UserPageQuery, AddReq, DelReq, EditReq, CreateCrudOptionsProps, CreateCrudOptionsRet, compute } from '@fast-crud/fast-crud';
+import { BtnPermissionStore } from '/@/stores/btnPermission';
 
 export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOptionsProps): CreateCrudOptionsRet {
   const pageRequest = async (query: UserPageQuery) => await api.GetList(query);
@@ -7,11 +8,17 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
   const delRequest = async ({ row }: DelReq) => await api.DelObj(row.id);
   const addRequest = async ({ form }: AddReq) => await api.AddObj(form);
 
+  const btnStore = BtnPermissionStore();
+  const hasAuth = (code: string) => (btnStore.data || []).includes(code);
+
   return {
     crudOptions: {
       request: { pageRequest, addRequest, editRequest, delRequest },
+      actionbar: { buttons: { add: { show: hasAuth('server:Create') } } },
       rowHandle: {
         buttons: {
+          edit: { show: compute(() => hasAuth('server:Update')) },
+          remove: { show: compute(() => hasAuth('server:Delete')) },
           ssh: {
             text: '终端',
             iconRight: 'Monitor',

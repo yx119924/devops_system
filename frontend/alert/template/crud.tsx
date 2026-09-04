@@ -1,12 +1,16 @@
 import * as api from './api';
-import { dict, UserPageQuery, AddReq, DelReq, EditReq, CreateCrudOptionsProps, CreateCrudOptionsRet } from '@fast-crud/fast-crud';
+import { dict, UserPageQuery, AddReq, DelReq, EditReq, CreateCrudOptionsProps, CreateCrudOptionsRet, compute } from '@fast-crud/fast-crud';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { BtnPermissionStore } from '/@/stores/btnPermission';
 
 export const createCrudOptions = function ({ crudExpose }: CreateCrudOptionsProps): CreateCrudOptionsRet {
 	const pageRequest = async (query: UserPageQuery) => await api.GetList(query);
 	const editRequest = async ({ form, row }: EditReq) => { form.id = row.id; return await api.UpdateObj(form); };
 	const delRequest = async ({ row }: DelReq) => await api.DelObj(row.id);
 	const addRequest = async ({ form }: AddReq) => await api.AddObj(form);
+
+	const btnStore = BtnPermissionStore();
+	const hasAuth = (code: string) => (btnStore.data || []).includes(code);
 
 	// 预览：用当前行的 body 调用后端 preview 接口，显示渲染结果（支持在表单中预览）
 	const onPreview = async ({ row }: any) => {
@@ -51,8 +55,11 @@ export const createCrudOptions = function ({ crudExpose }: CreateCrudOptionsProp
 	return {
 		crudOptions: {
 			request: { pageRequest, addRequest, editRequest, delRequest },
+			actionbar: { buttons: { add: { show: hasAuth('template:Create') } } },
 			rowHandle: {
 				buttons: {
+					edit: { show: compute(() => hasAuth('template:Update')) },
+					remove: { show: compute(() => hasAuth('template:Delete')) },
 					preview: {
 						text: '预览',
 						type: 'text',

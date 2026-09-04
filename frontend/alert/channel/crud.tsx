@@ -1,7 +1,8 @@
 import * as api from './api';
-import { dict, UserPageQuery, AddReq, DelReq, EditReq, CreateCrudOptionsProps, CreateCrudOptionsRet } from '@fast-crud/fast-crud';
+import { dict, UserPageQuery, AddReq, DelReq, EditReq, CreateCrudOptionsProps, CreateCrudOptionsRet, compute } from '@fast-crud/fast-crud';
 import { ElMessage } from 'element-plus';
 import { ref, computed } from 'vue';
+import { BtnPermissionStore } from '/@/stores/btnPermission';
 
 export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOptionsProps): CreateCrudOptionsRet {
   // 当前渠道类型，用于控制表单里配置字段的显隐
@@ -12,6 +13,9 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
   const editRequest = async ({ form, row }: EditReq) => { form.id = row.id; return await api.UpdateObj(form); };
   const delRequest = async ({ row }: DelReq) => await api.DelObj(row.id);
   const addRequest = async ({ form }: AddReq) => await api.AddObj(form);
+
+  const btnStore = BtnPermissionStore();
+  const hasAuth = (code: string) => (btnStore.data || []).includes(code);
 
   const testChannel = async (row: any) => {
     const res: any = await api.TestChannel(row.id);
@@ -25,8 +29,11 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
   return {
     crudOptions: {
       request: { pageRequest, addRequest, editRequest, delRequest },
+      actionbar: { buttons: { add: { show: hasAuth('channel:Create') } } },
       rowHandle: {
         buttons: {
+          edit: { show: compute(() => hasAuth('channel:Update')) },
+          remove: { show: compute(() => hasAuth('channel:Delete')) },
           test: {
             text: '测试发送',
             iconRight: 'Promotion',
@@ -124,7 +131,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           type: 'input',
           form: {
             show: computed(() => typeRef.value === 'email'),
-            component: { placeholder: '如 your_email@example.com' },
+            component: { placeholder: '如 xw_devops@163.com' },
           },
           column: { show: false },
         },
