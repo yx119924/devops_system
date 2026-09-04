@@ -27,6 +27,10 @@ export function ReloadRules() {
 	return request({ url: apiPrefix + 'reload/', method: 'post' });
 }
 
+export function SyncFromProm() {
+	return request({ url: apiPrefix + 'sync_from_prom/', method: 'post' });
+}
+
 export function Preview(expr: string) {
 	return request({ url: apiPrefix + 'preview/', method: 'post', data: { expr } });
 }

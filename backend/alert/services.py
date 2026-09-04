@@ -79,6 +79,136 @@ def sync_rules():
     return path, ok
 
 
+def _fmt_prom_duration(value):
+    """Prometheus /api/v1/rules 的 for 字段可能是 int(秒) 或 string('5m') / 0，规范化字符串。"""
+    if value is None:
+        return "0s"
+    if isinstance(value, (int, float)):
+        return "0s" if int(value) == 0 else f"{int(value)}s"
+    s = str(value).strip()
+    return s or "0s"
+
+
+def fetch_prometheus_rules():
+    """从 Prometheus /api/v1/rules 拉取所有已加载的 alerting 规则。
+    返回 (rule_groups, error_str)：
+      rule_groups 形如 [{"name": "group", "file": "...", "rules": [
+        {"alert": "Name", "expr": "up == 0", "for": "1m",
+         "severity": "warning", "summary": "...", "description": "...",
+         "state": "active|pending|firing|inactive",
+         "source_file": "...", "source_group": "..."},
+        ...
+      ]}]
+    出错时 rule_groups=None，error_str 为人类可读错误。
+    """
+    from dvadmin.alert.models import SEVERITY_CHOICES
+    valid_severity = dict(SEVERITY_CHOICES)
+    try:
+        url = _require_url("prometheus", "Prometheus")
+    except RuntimeError as e:
+        return None, str(e)
+    try:
+        resp = requests.get(f"{url}/api/v1/rules", timeout=15)
+        resp.raise_for_status()
+        payload = resp.json()
+    except requests.exceptions.RequestException as e:
+        return None, f"调用 Prometheus /api/v1/rules 失败：{e}"
+    except ValueError as e:
+        return None, f"Prometheus 响应非 JSON：{e}"
+    if payload.get("status") != "success":
+        return None, f"Prometheus 返回错误：{payload.get('error', payload.get('errorType', '未知错误'))}"
+
+    groups_out = []
+    for g in (payload.get("data", {}).get("groups") or []):
+        gname = g.get("name", "")
+        gfile = g.get("file", "")
+        rules_out = []
+        for r in (g.get("rules") or []):
+            if r.get("type") != "alerting":
+                continue  # 跳过 recording rules
+            labels = r.get("labels") or {}
+            annotations = r.get("annotations") or {}
+            severity = (labels.get("severity") or "warning").lower()
+            if severity not in valid_severity:
+                severity = "warning"
+            rules_out.append({
+                "alert": r.get("name", ""),
+                "expr": r.get("query", ""),
+                "for": _fmt_prom_duration(r.get("for")),
+                "severity": severity,
+                "summary": annotations.get("summary", ""),
+                "description": annotations.get("description", ""),
+                "state": r.get("state", "inactive"),
+                "source_file": gfile,
+                "source_group": gname,
+            })
+        groups_out.append({"name": gname, "file": gfile, "rules": rules_out})
+    return groups_out, None
+
+
+def sync_rules_from_prometheus():
+    """从 Prometheus 反向同步 alerting 规则到 XwOps 库（可逆：仅改 XwOps 库，不动 Prom 资源）。
+
+    策略：
+    - 按 alert 名匹配 XwOps 库 AlertRule
+    - 命中：更新 expr/duration/severity/summary/description，**保留 group/template/enabled**（不覆盖用户配置）
+    - 未命中：新建，enabled 初始按 Prom state 决定（active=True，否则 False），由用户审阅后再调整
+    - 任何一步出错不中断，记录到 errors 列表
+
+    返回 {"created":[...], "updated":[...], "skipped":[...], "errors":[...], "total_in_prom": int}
+    """
+    from dvadmin.alert.models import AlertRule
+
+    groups, err = fetch_prometheus_rules()
+    if err:
+        raise RuntimeError(err)
+
+    result = {"created": [], "updated": [], "skipped": [], "errors": [], "total_in_prom": 0}
+
+    for g in groups:
+        for r in g["rules"]:
+            result["total_in_prom"] += 1
+            name = r["alert"]
+            if not name:
+                result["errors"].append({"rule": "(无名)", "reason": "缺少 alert 名"})
+                continue
+            try:
+                existing = AlertRule.objects.filter(name=name).first()
+                if existing:
+                    existing.expr = r["expr"]
+                    existing.duration = r["for"]
+                    existing.severity = r["severity"]
+                    existing.summary = r["summary"] or None
+                    existing.description = r["description"] or None
+                    existing.save(update_fields=["expr", "duration", "severity",
+                                                 "summary", "description"])
+                    result["updated"].append({
+                        "name": name,
+                        "source_group": r["source_group"],
+                        "source_file": r["source_file"],
+                        "state": r["state"],
+                    })
+                else:
+                    AlertRule.objects.create(
+                        name=name,
+                        expr=r["expr"],
+                        duration=r["for"],
+                        severity=r["severity"],
+                        summary=r["summary"] or None,
+                        description=r["description"] or None,
+                        enabled=(r["state"] == "active"),
+                    )
+                    result["created"].append({
+                        "name": name,
+                        "source_group": r["source_group"],
+                        "source_file": r["source_file"],
+                        "state": r["state"],
+                    })
+            except Exception as e:
+                result["errors"].append({"rule": name, "reason": str(e)})
+    return result
+
+
 def query_active_alerts():
     """查询 Alertmanager 当前活跃告警"""
     url = _require_url("alertmanager", "Alertmanager")

@@ -12,6 +12,42 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
   const btnStore = BtnPermissionStore();
   const hasAuth = (code: string) => (btnStore.data || []).includes(code);
 
+  const syncFromProm = async () => {
+    try {
+      const res: any = await api.SyncFromProm();
+      if (res.code !== 2000) {
+        ElMessage.error(res.msg || '同步失败');
+        return;
+      }
+      const d = res.data || {};
+      const lines: string[] = [];
+      lines.push(`<b>${res.msg || '同步完成'}</b>`);
+      if ((d.created || []).length) {
+        lines.push('<br/><b>新增：</b>');
+        lines.push((d.created as any[]).map((r) => `${r.name} <span style="color:#909399">(${r.source_group || '-'}，state=${r.state})</span>`).join('<br/>'));
+      }
+      if ((d.updated || []).length) {
+        lines.push('<br/><b>更新：</b>');
+        lines.push((d.updated as any[]).map((r) => `${r.name} <span style="color:#909399">(${r.source_group || '-'}，state=${r.state})</span>`).join('<br/>'));
+      }
+      if ((d.errors || []).length) {
+        lines.push('<br/><b style="color:#f56c6c">错误：</b>');
+        lines.push((d.errors as any[]).map((r) => `${r.rule}: ${r.reason}`).join('<br/>'));
+      }
+      if (!d.total_in_prom) {
+        lines.push('<br/><span style="color:#909399">Prometheus 中暂无告警规则</span>');
+      }
+      ElMessageBox.alert(
+        `<div style="font-size:13px;line-height:1.7;max-height:60vh;overflow:auto">${lines.join('')}</div>`,
+        '从 Prometheus 同步告警规则',
+        { dangerouslyUseHTMLString: true, confirmButtonText: '知道了' }
+      );
+      crudExpose?.refresh?.();
+    } catch (e: any) {
+      ElMessage.error(e?.message || '同步异常');
+    }
+  };
+
   const preview = async (row: any) => {
     const res: any = await api.Preview(row.expr);
     if (res.code !== 2000) {
@@ -35,7 +71,19 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
   return {
     crudOptions: {
       request: { pageRequest, addRequest, editRequest, delRequest },
-      actionbar: { buttons: { add: { show: hasAuth('rule:Create') } } },
+      actionbar: {
+        buttons: {
+          add: { show: hasAuth('rule:Create') },
+          sync: {
+            text: '同步 Prom',
+            type: 'primary',
+            plain: true,
+            icon: 'Refresh',
+            show: hasAuth('rule:Create'),
+            click: syncFromProm,
+          },
+        },
+      },
       rowHandle: {
         buttons: {
           edit: { show: compute(() => hasAuth('rule:Update')) },
