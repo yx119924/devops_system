@@ -93,42 +93,8 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
     }
   };
 
-  const addRequest = async ({ form }: AddReq) => {
-    const targets = await buildTargets(crudExpose, form.cmdb_targets, form.manual_ips);
-    if (!targets.length) {
-      ElMessage.error('请至少选择一个 CMDB 目标或填写手动 IP');
-      throw new Error('未选择目标');
-    }
-    const payload: any = {
-      name: form.name,
-      command: form.command,
-      credential: form.credential,
-      targets,
-      timeout: form.timeout || 30,
-      max_workers: form.max_workers || 10,
-    };
-    return await api.AddObj(payload);
-  };
-
-  const editRequest = async ({ form, row }: EditReq) => {
-    form.id = row.id;
-    const targets = await buildTargets(crudExpose, form.cmdb_targets, form.manual_ips);
-    if (!targets.length) {
-      ElMessage.error('请至少选择一个 CMDB 目标或填写手动 IP');
-      throw new Error('未选择目标');
-    }
-    return await api.UpdateObj({
-      id: row.id,
-      name: form.name,
-      command: form.command,
-      credential: form.credential,
-      targets,
-      timeout: form.timeout || 30,
-      max_workers: form.max_workers || 10,
-    });
-  };
-
   // 执行/重试共用逻辑：高危确认 → 调接口 → 刷新列表 → 自动弹详情
+  // 提到 addRequest 之前，addRequest 创建后会自动调用
   const doExecute = async (id: number, retry: boolean, command: string) => {
     if (!(await confirmDangerous(command))) {
       return;
@@ -152,6 +118,48 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
     } catch (e: any) {
       ElMessage.error('执行失败：' + (e?.message || e));
     }
+  };
+
+  const addRequest = async ({ form }: AddReq) => {
+    const targets = await buildTargets(crudExpose, form.cmdb_targets, form.manual_ips);
+    if (!targets.length) {
+      ElMessage.error('请至少选择一个 CMDB 目标或填写手动 IP');
+      throw new Error('未选择目标');
+    }
+    const payload: any = {
+      name: form.name,
+      command: form.command,
+      credential: form.credential,
+      targets,
+      timeout: form.timeout || 30,
+      max_workers: form.max_workers || 10,
+    };
+    // 创建后立即触发执行：避免「卡 pending」体感，create→execute→弹结果一次完成。
+    // 行 rowHandle 仍保留「执行」「重试失败」按钮，供手动重跑使用。
+    const res = await api.AddObj(payload);
+    const newId = res?.data?.data?.id ?? res?.data?.id;
+    if (newId) {
+      await doExecute(Number(newId), false, form.command);
+    }
+    return res;
+  };
+
+  const editRequest = async ({ form, row }: EditReq) => {
+    form.id = row.id;
+    const targets = await buildTargets(crudExpose, form.cmdb_targets, form.manual_ips);
+    if (!targets.length) {
+      ElMessage.error('请至少选择一个 CMDB 目标或填写手动 IP');
+      throw new Error('未选择目标');
+    }
+    return await api.UpdateObj({
+      id: row.id,
+      name: form.name,
+      command: form.command,
+      credential: form.credential,
+      targets,
+      timeout: form.timeout || 30,
+      max_workers: form.max_workers || 10,
+    });
   };
 
   return {
