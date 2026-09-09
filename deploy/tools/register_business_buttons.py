@@ -64,6 +64,7 @@ CRUD_PAGES = [
     ("告警群组", "group", "/api/alert/group/"),
     ("告警模板", "template", "/api/alert/template/"),
     ("命令下发", "dispatch", "/api/bastion/dispatch/"),
+    ("Jenkins 服务器", "jenkinsServer", "/api/jenkins/server/"),
 ]
 
 # 只读页：(菜单名, value前缀, api前缀) —— 只需查询按钮
@@ -92,6 +93,13 @@ EXTRA_ACTIONS = [
     ("命令下发", "执行", "dispatch:Execute", "/api/bastion/dispatch/{id}/execute/", POST),
     ("命令下发", "重试失败", "dispatch:Retry", "/api/bastion/dispatch/{id}/execute/", POST),
     ("命令下发", "查看结果", "dispatch:Items", "/api/bastion/dispatch/{id}/items/", GET),
+    # Jenkins 发布管理
+    ("Jenkins 服务器", "测试连接", "jenkinsServer:Test", "/api/jenkins/server/{id}/test/", GET),
+    ("构建发布", "服务器下拉", "jenkinsJob:ServerList", "/api/jenkins/server/all/", GET),
+    ("构建发布", "Job 列表", "jenkinsJob:Jobs", "/api/jenkins/server/{id}/jobs/", GET),
+    ("构建发布", "触发构建", "jenkinsJob:Build", "/api/jenkins/server/{id}/build/", POST),
+    ("构建发布", "构建状态", "jenkinsJob:Status", "/api/jenkins/server/{id}/job_status/", GET),
+    ("构建发布", "构建日志", "jenkinsJob:Console", "/api/jenkins/server/{id}/console/", GET),
 ]
 
 # ============================================================
@@ -155,6 +163,7 @@ BUSINESS_MENUS = [
     "堡垒机", "凭据管理", "会话记录", "命令审计", "命令下发",
     "监控告警", "数据源管理", "指标查询", "告警管理",
     "告警规则", "通知渠道", "告警群组", "活跃告警", "历史告警", "告警模板",
+    "发布管理", "Jenkins 服务器", "构建发布",
 ]
 
 menu_perm_count = 0
