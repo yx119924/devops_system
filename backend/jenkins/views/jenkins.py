@@ -15,7 +15,7 @@ from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
-from dvadmin.jenkins.models import JenkinsServer
+from dvadmin.jenkins.models import JenkinsServer, JenkinsRolePermission
 from dvadmin.utils.json_response import DetailResponse, ErrorResponse
 from dvadmin.utils.serializers import CustomModelSerializer
 from dvadmin.utils.viewset import CustomModelViewSet
@@ -134,21 +134,90 @@ class JenkinsServerViewSet(CustomModelViewSet):
         return ErrorResponse(msg=f"Jenkins 返回 HTTP {code}：{str(body)[:200]}")
 
     # ------------------------------------------------------------
-    # 获取所有 Job
+    # 获取所有 Job（递归 folder + 按角色权限过滤）
     # ------------------------------------------------------------
     @action(methods=['GET'], detail=True, url_path='jobs')
     def jobs(self, request, pk=None):
         source = self._get_source()
-        tree = 'jobs[name,url,color,description]'
+        allowed = self._get_allowed_paths(request, source)
         try:
-            code, body, _ = self._request(source, '/api/json', method='GET',
-                                          params={'tree': tree}, timeout=30)
+            items = self._fetch_jobs_tree(source, allowed=allowed)
         except Exception as e:
             return ErrorResponse(msg=str(e))
+        return DetailResponse(data={'jobs': items, 'restricted': allowed is not None}, msg="获取成功")
+
+    def _get_allowed_paths(self, request, source):
+        """返回允许的路径前缀列表；None=全部允许；[]=无权限"""
+        if request.user.is_superuser:
+            return None
+        role = getattr(request.user, 'current_role', None)
+        if not role:
+            return []
+        perms = JenkinsRolePermission.objects.filter(server=source, role=role)
+        if not perms.exists():
+            return []  # 默认拒绝
+        allowed = set()
+        for p in perms:
+            paths = p.allowed_paths or []
+            if not paths:  # 空列表 = 全部
+                return None
+            allowed.update(paths)
+        return list(allowed)
+
+    @staticmethod
+    def _path_matches(full_path, prefix):
+        """判断路径是否命中前缀（前缀如 "dev/" 或 "dev/backend"），按路径段精确匹配"""
+        pc = prefix.rstrip('/')
+        return full_path == pc or full_path.startswith(pc + '/')
+
+    def _check_job_allowed(self, request, source, job):
+        """校验用户是否有权操作某 job（供 build/job_status/console 复用）"""
+        allowed = self._get_allowed_paths(request, source)
+        if allowed is None:
+            return True
+        if not allowed:
+            return False
+        return any(self._path_matches(str(job), p) for p in allowed)
+
+    def _fetch_jobs_tree(self, source, path='', depth=0, max_depth=12, allowed=None):
+        """递归爬取顶层 jobs，返回扁平列表（含 folder + job，带 full_path/depth/is_folder）"""
+        tree = 'jobs[name,url,color,description,_class]'
+        url_path = f'/job/{quote(path)}/api/json' if path else '/api/json'
+        code, body, _ = self._request(source, url_path, method='GET', params={'tree': tree}, timeout=60)
         if code != 200:
-            return ErrorResponse(msg=f"Jenkins 返回 HTTP {code}：{str(body)[:300]}")
-        jobs = (body or {}).get('jobs', []) if isinstance(body, dict) else []
-        return DetailResponse(data={'jobs': jobs}, msg="获取成功")
+            return []
+        items = (body or {}).get('jobs', []) if isinstance(body, dict) else []
+        result = []
+        for j in items:
+            jname = j.get('name', '')
+            full_path = f"{path}/{jname}" if path else jname
+            jclass = j.get('_class', '') or ''
+            is_folder = 'Folder' in jclass or ('color' not in j and not j.get('color'))
+            node = {
+                'full_path': full_path, 'name': jname, 'is_folder': is_folder,
+                'color': j.get('color'), 'description': j.get('description'),
+                'url': j.get('url'), 'depth': depth,
+            }
+            if is_folder:
+                if allowed is None:
+                    drill = True
+                else:
+                    # folder 下钻：folder 命中某前缀，或某前缀落在 folder 之内
+                    drill = any(
+                        self._path_matches(full_path, p) or self._path_matches(p, full_path)
+                        for p in allowed
+                    )
+                if drill and depth < max_depth:
+                    sub = self._fetch_jobs_tree(source, full_path, depth + 1, max_depth, allowed)
+                    if sub:
+                        result.append(node)
+                        result.extend(sub)
+                elif allowed is None:
+                    result.append(node)
+            else:
+                if allowed is None or any(self._path_matches(full_path, p) for p in allowed):
+                    result.append(node)
+        return result
 
     # ------------------------------------------------------------
     # 触发构建
@@ -161,6 +230,8 @@ class JenkinsServerViewSet(CustomModelViewSet):
         parameters = (request.data or {}).get('parameters') or {}
         if not job:
             return ErrorResponse(msg="缺少 job 参数")
+        if not self._check_job_allowed(request, source, job):
+            return ErrorResponse(msg="无权限操作该 Job")
         job_path = quote(str(job), safe='')
 
         # 1. 尝试拿 crumb（Jenkins 开启 CSRF 时必需）
@@ -208,6 +279,8 @@ class JenkinsServerViewSet(CustomModelViewSet):
         job = request.query_params.get('job', '')
         if not job:
             return ErrorResponse(msg="缺少 job 参数")
+        if not self._check_job_allowed(request, source, job):
+            return ErrorResponse(msg="无权限操作该 Job")
         job_path = quote(str(job), safe='')
         try:
             code, body, _ = self._request(source, f'/job/{job_path}/lastBuild/api/json',
@@ -233,6 +306,8 @@ class JenkinsServerViewSet(CustomModelViewSet):
         start = request.query_params.get('start', '0')
         if not job:
             return ErrorResponse(msg="缺少 job 参数")
+        if not self._check_job_allowed(request, source, job):
+            return ErrorResponse(msg="无权限操作该 Job")
         job_path = quote(str(job), safe='')
         try:
             code, body, resp = self._request(

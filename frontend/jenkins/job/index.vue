@@ -17,30 +17,33 @@
 
 			<!-- Job 列表 -->
 			<el-card shadow="never">
-				<el-table :data="jobs" border size="small" v-loading="jobLoading" empty-text="请先选择 Jenkins 服务器">
-					<el-table-column prop="name" label="Job 名称" min-width="240" show-overflow-tooltip>
+				<el-table :data="jobs" border size="small" v-loading="jobLoading" empty-text="请先选择 Jenkins 服务器" row-key="full_path">
+					<el-table-column label="Job / 目录" min-width="300" show-overflow-tooltip>
 						<template #default="{ row }">
-							<el-link type="primary" :href="row.url" target="_blank" :underline="false">{{ row.name }}</el-link>
+							<div :style="{ paddingLeft: (row.depth * 22) + 'px' }">
+								<span v-if="row.is_folder" class="folder-name">{{ row.name }}</span>
+								<el-link v-else type="primary" :href="row.url" target="_blank" :underline="false">{{ row.name }}</el-link>
+							</div>
 						</template>
 					</el-table-column>
-					<el-table-column label="状态" width="110" align="center">
+					<el-table-column label="状态" width="100" align="center">
 						<template #default="{ row }">
-							<el-tag :type="colorInfo(row.color).type" size="small" effect="light">{{ colorInfo(row.color).label }}</el-tag>
+							<span v-if="row.is_folder">-</span>
+							<el-tag v-else :type="colorInfo(row.color).type" size="small" effect="light">{{ colorInfo(row.color).label }}</el-tag>
 						</template>
 					</el-table-column>
-					<el-table-column label="最近构建" width="120" align="center">
+					<el-table-column label="完整路径" min-width="220" show-overflow-tooltip>
 						<template #default="{ row }">
-							<span v-if="row.lastBuild">{{ row.lastBuild.number }} / {{ row.lastBuild.result }}</span>
-							<span v-else>-</span>
+							<span class="path-text">{{ row.full_path }}</span>
 						</template>
-					</el-table-column>
-					<el-table-column label="描述" min-width="180" show-overflow-tooltip>
-						<template #default="{ row }">{{ row.description || '-' }}</template>
 					</el-table-column>
 					<el-table-column label="操作" width="200" align="center" fixed="right">
 						<template #default="{ row }">
-							<el-button size="small" type="primary" @click="onBuild(row)">触发构建</el-button>
-							<el-button size="small" @click="onViewLog(row)">查看日志</el-button>
+							<template v-if="!row.is_folder">
+								<el-button size="small" type="primary" @click="onBuild(row)">触发构建</el-button>
+								<el-button size="small" @click="onViewLog(row)">查看日志</el-button>
+							</template>
+							<span v-else class="op-empty">-</span>
 						</template>
 					</el-table-column>
 				</el-table>
@@ -145,7 +148,7 @@ export default defineComponent({
 			try {
 				const { value } = await ElMessageBox.prompt(
 					'可选填参数化构建参数（JSON 格式，如 {"branch":"master"}），留空则为普通构建',
-					`触发构建：${row.name}`,
+					`触发构建：${row.full_path}`,
 					{ confirmButtonText: '触发', cancelButtonText: '取消', inputPlaceholder: '{"branch":"master"}（可留空）' }
 				);
 				let parameters: any = {};
@@ -157,11 +160,11 @@ export default defineComponent({
 						return;
 					}
 				}
-				const res: any = await Build(serverId.value, row.name, parameters);
+				const res: any = await Build(serverId.value, row.full_path, parameters);
 				if (res.code === 2000) {
 					ElMessage.success(res.msg || '已触发构建');
 					// 触发后自动打开日志
-					openLog(row.name);
+					openLog(row.full_path);
 				} else {
 					ElMessage.error(res.msg || '触发构建失败');
 				}
@@ -172,7 +175,7 @@ export default defineComponent({
 		};
 
 		const onViewLog = (row: any) => {
-			openLog(row.name);
+			openLog(row.full_path);
 		};
 
 		const openLog = (jobName: string) => {
@@ -279,6 +282,21 @@ export default defineComponent({
 .job-count {
 	color: #909399;
 	font-size: 13px;
+}
+.folder-name {
+	color: #606266;
+	font-weight: 500;
+}
+.folder-name::before {
+	content: "▸ ";
+	color: #909399;
+}
+.path-text {
+	color: #909399;
+	font-size: 12px;
+}
+.op-empty {
+	color: #c0c4cc;
 }
 .log-toolbar {
 	display: flex;
