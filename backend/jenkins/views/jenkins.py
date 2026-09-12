@@ -170,6 +170,15 @@ class JenkinsServerViewSet(CustomModelViewSet):
         pc = prefix.rstrip('/')
         return full_path == pc or full_path.startswith(pc + '/')
 
+    @staticmethod
+    def _jenkins_path(full_path):
+        """把展示用的 full_path（如 'dev/中心/backend'）转成 Jenkins URL 路径（'dev/job/中心/job/backend'）
+
+        Jenkins 嵌套 folder 的 API 路径是 /job/父/job/子/...，每层都要用 /job/ 分隔，
+        而不是直接 / 拼接。
+        """
+        return '/job/'.join(str(full_path).split('/'))
+
     def _check_job_allowed(self, request, source, job):
         """校验用户是否有权操作某 job（供 build/job_status/console 复用）"""
         allowed = self._get_allowed_paths(request, source)
@@ -182,7 +191,10 @@ class JenkinsServerViewSet(CustomModelViewSet):
     def _fetch_jobs_tree(self, source, path='', depth=0, max_depth=12, allowed=None):
         """递归爬取顶层 jobs，返回扁平列表（含 folder + job，带 full_path/depth/is_folder）"""
         tree = 'jobs[name,url,color,description,_class]'
-        url_path = f'/job/{quote(path)}/api/json' if path else '/api/json'
+        if path:
+            url_path = f'/job/{quote(self._jenkins_path(path), safe="/")}/api/json'
+        else:
+            url_path = '/api/json'
         code, body, _ = self._request(source, url_path, method='GET', params={'tree': tree}, timeout=60)
         if code != 200:
             return []
@@ -192,7 +204,7 @@ class JenkinsServerViewSet(CustomModelViewSet):
             jname = j.get('name', '')
             full_path = f"{path}/{jname}" if path else jname
             jclass = j.get('_class', '') or ''
-            is_folder = 'Folder' in jclass or ('color' not in j and not j.get('color'))
+            is_folder = 'Folder' in jclass or not j.get('color')
             node = {
                 'full_path': full_path, 'name': jname, 'is_folder': is_folder,
                 'color': j.get('color'), 'description': j.get('description'),
@@ -209,9 +221,8 @@ class JenkinsServerViewSet(CustomModelViewSet):
                     )
                 if drill and depth < max_depth:
                     sub = self._fetch_jobs_tree(source, full_path, depth + 1, max_depth, allowed)
-                    if sub:
-                        result.append(node)
-                        result.extend(sub)
+                    result.append(node)      # folder 行总是显示（即使为空）
+                    result.extend(sub)
                 elif allowed is None:
                     result.append(node)
             else:
@@ -232,7 +243,7 @@ class JenkinsServerViewSet(CustomModelViewSet):
             return ErrorResponse(msg="缺少 job 参数")
         if not self._check_job_allowed(request, source, job):
             return ErrorResponse(msg="无权限操作该 Job")
-        job_path = quote(str(job), safe='')
+        job_path = quote(self._jenkins_path(job), safe='/')
 
         # 1. 尝试拿 crumb（Jenkins 开启 CSRF 时必需）
         crumb = self._get_crumb(source)
@@ -281,7 +292,7 @@ class JenkinsServerViewSet(CustomModelViewSet):
             return ErrorResponse(msg="缺少 job 参数")
         if not self._check_job_allowed(request, source, job):
             return ErrorResponse(msg="无权限操作该 Job")
-        job_path = quote(str(job), safe='')
+        job_path = quote(self._jenkins_path(job), safe='/')
         try:
             code, body, _ = self._request(source, f'/job/{job_path}/lastBuild/api/json',
                                           method='GET', timeout=30)
@@ -308,7 +319,7 @@ class JenkinsServerViewSet(CustomModelViewSet):
             return ErrorResponse(msg="缺少 job 参数")
         if not self._check_job_allowed(request, source, job):
             return ErrorResponse(msg="无权限操作该 Job")
-        job_path = quote(str(job), safe='')
+        job_path = quote(self._jenkins_path(job), safe='/')
         try:
             code, body, resp = self._request(
                 source, f'/job/{job_path}/{build}/logText/progressiveText',
