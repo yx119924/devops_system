@@ -1,0 +1,28 @@
+# Alertmanager 配置（平台告警）
+# ★ 本文件为可选组件：不在 docker-compose.yml 内，需独立部署 Alertmanager 时才用。
+#   webhook 指向的 IP 是占位值，部署时请替换（见 DEPLOY.md 附录 B）。
+global:
+  resolve_timeout: 5m
+
+# 路由：按告警名 + 级别分组，收敛发送
+route:
+  receiver: 'platform'
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+# 接收器：平台 webhook receiver（分发到飞书/钉钉/企微/邮箱）
+receivers:
+  - name: 'platform'
+    webhook_configs:
+      - url: 'http://172.31.0.12:8000/api/alert/webhook/receiver/'
+        send_resolved: true
+        # ★ 平台侧 /api/alert/webhook/receiver/ 现在要求 Bearer 认证。
+        #   credentials 必须与 conf/env.py（或 compose 环境变量）里的
+        #   ALERT_WEBHOOK_SECRET 完全一致，且长度 >= 32 字符，
+        #   否则平台会返回 503（未配置）或 401（认证失败），告警会被丢弃。
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: 'CHANGE_ME_SAME_AS_ALERT_WEBHOOK_SECRET'
