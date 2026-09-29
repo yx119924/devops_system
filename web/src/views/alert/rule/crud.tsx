@@ -146,6 +146,73 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           column: { width: 90, align: 'center' },
           form: { value: 'warning' },
         },
+        source: {
+          title: '来源',
+          type: 'dict-select',
+          search: { show: true },
+          dict: dict({
+            data: [
+              { value: 'platform', label: '平台（下发）', color: 'success' },
+              { value: 'prom', label: 'Prom 纳管', color: 'info' },
+            ],
+          }),
+          column: { width: 110, align: 'center' },
+          form: {
+            value: 'platform',
+            helper: '「平台」的规则会被下发到 Prometheus；「Prom 纳管」只做集中管理、不下发（避免与 Prometheus 原有规则重复触发）',
+          },
+        },
+        labels: {
+          title: '附加标签',
+          type: 'textarea',
+          form: {
+            component: { rows: 2, placeholder: 'JSON，如 {"team":"ops"}；留空则只带 severity' },
+            helper: '会合并进 Prometheus 规则的 labels（severity 由「级别」自动生成，不用写在这里）',
+            rules: [
+              {
+                validator: (_rule: any, value: any, callback: any) => {
+                  const raw = (value ?? '').toString().trim();
+                  if (!raw) return callback();
+                  try {
+                    const obj = JSON.parse(raw);
+                    if (obj && typeof obj === 'object' && !Array.isArray(obj)) return callback();
+                    return callback(new Error('需为 JSON 对象，如 {"team":"ops"}'));
+                  } catch (e) {
+                    return callback(new Error('不是合法的 JSON'));
+                  }
+                },
+              },
+            ],
+          },
+          column: {
+            minWidth: 140,
+            showOverflowTooltip: true,
+            formatter: ({ row }: any) => {
+              const obj = row.labels || {};
+              const keys = Object.keys(obj);
+              return keys.length ? keys.map((k) => `${k}=${obj[k]}`).join(', ') : '-';
+            },
+          },
+          valueBuilder(context: any) {
+            const { row, key } = context;
+            const val = row[key];
+            if (val && typeof val === 'object') return JSON.stringify(val);
+            return val || '';
+          },
+          valueResolve({ form }: any) {
+            const raw = (form.labels ?? '').toString().trim();
+            if (!raw) {
+              form.labels = {};
+              return;
+            }
+            try {
+              const obj = JSON.parse(raw);
+              form.labels = obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : {};
+            } catch (e) {
+              form.labels = {};
+            }
+          },
+        },
         summary: {
           title: '告警摘要',
           type: 'input',

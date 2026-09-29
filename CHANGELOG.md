@@ -5,6 +5,46 @@
 
 ---
 
+## 未发布 —— 告警规则「双源共存」+ 下发回读校验（2026-09-29）
+
+### 背景
+
+内网真机联调暴露两个现象：
+
+1. 在平台新建告警规则、点「同步规则」提示成功，但 Prometheus 里**始终没有**这条规则；
+2. 平台生成的规则即使触发了，也**收不到告警**。
+
+根因与完整排查见 `DEPLOY.md` 附录 B 第 4 条。本次改动修掉「假成功」与「静默丢失」两侧。
+
+### 变更
+
+| 改动 | 文件 | 说明 |
+|---|---|---|
+| 规则新增「来源」 | `backend/dvadmin/alert/models.py`（+ 迁移 `alert/0007_alertrule_source_labels`） | `platform`=平台新建（会下发）／`prom`=从 Prometheus 反向同步（只纳管、不下发）。**迁移会把存量规则一律标为 `prom`** ⇒ 升级后不会突然整份下发造成告警双发 |
+| 规则新增「附加标签」 | 同上 | 一个 JSON 对象，合并进 Prometheus 规则的 `labels`（如 `{"team":"ops"}`）；`severity` 仍由「级别」字段生成，不允许被覆盖 |
+| 只下发平台规则 | `services.py::generate_rules` | 原来「全量导出」，现在加 `source='platform'` 过滤 |
+| 「同步 Prom」建档标记来源 | `services.py::sync_rules_from_prometheus` | 新建规则标 `source='prom'`；命中已存在的只更新表达式/持续时间/级别/摘要/描述，**不动 `source`** |
+| 「同步规则」新增回读校验 | `services.py::verify_rules_loaded` + `views/rule.py::reload_rules` | reload 后回读 `{prom}/api/v1/rules`；读不到就**返回错误并列出规则名**，不再假报成功 |
+| 前端两列 + 修正假成功提示 | `web/src/views/alert/rule/crud.tsx`、`index.vue` | 新增「来源」「附加标签」两列；「同步规则」改为**回显后端 msg**（原来写死 `规则已同步并热加载`） |
+| 首页卡片跳转修正 + 活跃告警「指纹」 | `web/src/views/system/home/index.vue`、`web/src/views/alert/manage/index.vue` | ① 「**活跃告警**」卡片原来跳的是 `/alertEvent`（历史告警）→ 改为 `/alertManage`（活跃告警菜单）；② 「**严重告警(周)**」卡片改名为「**历史告警**」，数值口径同步换成近 7 天总数，避免「标题写历史告警、数字是本周严重数」的名实不符；③ 活跃告警「详情」新增 **Alertmanager 指纹**，用于判断多条看似相同的告警到底是不是同一条 |
+| 运行时产物移出版本控制 | `.gitignore`（+ `backend/dvadmin/alert/rules/.gitkeep`） | `backend/dvadmin/alert/rules/*.yml` 是 `generate_rules()` 的**运行时产物**，每次「同步规则」整份覆盖，内容是本环境真实的规则名/job/阈值 —— 之前被提交进了公开仓库。现在改为忽略，只保留 `.gitkeep` 占位 |
+
+> ⚠️ `devops_rules.yml` 已从索引移除，但**它仍存在于 v1.0.0 的提交历史里**（公开仓库）。
+> 若要彻底清除，需重写历史后强推（与之前 amend + force-push 的做法一致），
+> 或至少在下一次 push 时用新提交覆盖。
+
+### 升级注意
+
+- 需要执行 **1 次数据库迁移**：`python manage.py migrate alert`（新增 2 列 + 1 步数据迁移）。
+- ★ 改了前端源码 ⇒ **必须重建 web 镜像**（本项目前端是编译进镜像的，不是挂载）。
+- 后端 `.py` 改动需**重启** `dvadmin3-django` / `dvadmin3-celery`（uvicorn 未开 `--reload`）。
+- 规则要真正进 Prometheus，仍需按 `DEPLOY.md` 附录 B 第 4 条选一条「共享目录 / 投递」方案；
+  本版本只保证**不再假报成功**，不能替代那条数据通路。
+- 平台规则要能被 Alertmanager 路由到，还需给规则加 `team` 附加标签（推荐 `{"team":"ops"}`）、
+  并把 Alertmanager 的 `route.receiver` 指向平台的 receiver。
+
+---
+
 ## XwOps v1.0.0（2026-09-28 首发 / 2026-09-29 重新发行）
 
 首个对外交付版本。

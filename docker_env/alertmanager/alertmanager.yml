@@ -18,10 +18,20 @@ receivers:
     webhook_configs:
       - url: 'http://172.31.0.12:8000/api/alert/webhook/receiver/'
         send_resolved: true
-        # ★ 平台侧 /api/alert/webhook/receiver/ 现在要求 Bearer 认证。
-        #   credentials 必须与 conf/env.py（或 compose 环境变量）里的
-        #   ALERT_WEBHOOK_SECRET 完全一致，且长度 >= 32 字符，
-        #   否则平台会返回 503（未配置）或 401（认证失败），告警会被丢弃。
+        # ★★ 上面的 url 是**占位值**，按 Alertmanager 实际跑在哪来选，别照抄：
+        #   · 与 compose 在同一个 docker 网络 → http://172.31.0.12:8000/api/alert/webhook/receiver/
+        #     （直连 django，**单层** /api）
+        #   · 宿主机上另一个独立 compose / 裸机 / 另一台机器 →
+        #     http://<XwOps宿主机IP>:8080/api/api/alert/webhook/receiver/（走 nginx，**双层** /api）
+        #   填错的典型症状：AM 日志里 `dial tcp 172.31.0.12:8000: i/o timeout`，
+        #   而平台侧**完全无感知**（不会有任何日志或落库记录）。
+        #
+        # ★ 平台侧 /api/alert/webhook/receiver/ 要求 Bearer 认证。
+        #   credentials 必须与 backend/conf/env.py 里的 ALERT_WEBHOOK_SECRET 完全一致，
+        #   且长度 >= 32 字符，否则平台会返回 503（未配置）或 401（认证失败），告警会被丢弃。
+        #   ★ 优先级：conf/env.py 的值**优先于** compose 环境变量；
+        #     只在 .env 里配、而 env.py 留着 34 字符的占位串时，
+        #     长度检查能过、preflight 不报，最终表现为 **401**（不是 503）。
         http_config:
           authorization:
             type: Bearer

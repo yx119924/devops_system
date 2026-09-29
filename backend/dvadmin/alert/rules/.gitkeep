@@ -1,0 +1,2 @@
+# 占位文件：保留 backend/dvadmin/alert/rules/ 目录
+# 该目录下的 *.yml 是平台运行时生成的告警规则文件，已 gitignore（见根 .gitignore）

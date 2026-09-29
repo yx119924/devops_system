@@ -12,9 +12,20 @@ SEVERITY_CHOICES = (
     ("info", "提示"),
 )
 
+RULE_SOURCE_CHOICES = (
+    ("platform", "平台"),
+    ("prom", "Prometheus"),
+)
+
 
 class AlertRule(CoreModel):
-    """告警规则（对应 Prometheus alerting rule）"""
+    """告警规则（对应 Prometheus alerting rule）
+
+    ★ source 决定这条规则「归谁管」，避免平台与 Prometheus 的规则互相打架：
+      - platform：在平台页面新建的规则 → 会被 generate_rules() 写成规则文件下发到 Prometheus
+      - prom    ：从 Prometheus 反向同步（sync_from_prom）建档的规则 → 只做集中纳管/展示，
+                  不参与下发，否则会和 Prometheus 里原有的同名规则形成两条独立规则 ⇒ 告警双发
+    """
     name = models.CharField(max_length=128, verbose_name="规则名称", help_text="告警名称，需唯一")
     expr = models.TextField(verbose_name="PromQL 表达式", help_text="触发告警的 PromQL 表达式，如 up == 0")
     duration = models.CharField(max_length=16, default="1m", verbose_name="持续时间",
@@ -33,6 +44,14 @@ class AlertRule(CoreModel):
                                  db_constraint=False, related_name="rules",
                                  verbose_name="通知模板",
                                  help_text="触发后使用该模板渲染通知内容；不选则用默认模板（is_default）或内置格式")
+    source = models.CharField(max_length=16, choices=RULE_SOURCE_CHOICES, default="platform",
+                              verbose_name="规则来源",
+                              help_text="platform=平台新建，会被下发到 Prometheus；"
+                                        "prom=从 Prometheus 反向同步而来，只做纳管展示、不下发"
+                                        "（否则会与 Prometheus 原有规则重复触发）")
+    labels = models.JSONField(default=dict, blank=True, verbose_name="附加标签",
+                              help_text='追加到 Prometheus 规则 labels 里的键值对，如 {"team":"ops"}；'
+                                        'severity 由「级别」字段统一生成，此处填了也会被忽略')
 
     class Meta:
         db_table = "alert_rule"

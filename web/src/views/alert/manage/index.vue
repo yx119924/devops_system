@@ -239,6 +239,10 @@
 				</el-descriptions-item>
 				<el-descriptions-item label="状态">{{ detail.silenced ? '已静默' : detail.inhibited ? '已抑制' : '告警中' }}</el-descriptions-item>
 				<el-descriptions-item label="实例" :span="2">{{ detail.instance || '-' }}</el-descriptions-item>
+				<el-descriptions-item label="指纹" :span="2">
+					<span style="font-family: monospace">{{ detail.fingerprint || '-' }}</span>
+					<span class="form-hint">Alertmanager 按「全部标签」的哈希生成指纹：指纹相同才是同一条告警，不同就是两条独立告警</span>
+				</el-descriptions-item>
 				<el-descriptions-item label="开始时间">{{ fmtTime(detail.startsAt) }}</el-descriptions-item>
 				<el-descriptions-item label="恢复时间">{{ fmtTime(detail.endsAt) }}</el-descriptions-item>
 				<el-descriptions-item label="摘要" :span="2">{{ detail.summary || '-' }}</el-descriptions-item>

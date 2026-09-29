@@ -29,11 +29,16 @@ export default defineComponent({
 			reloadLoading.value = true;
 			try {
 				const res: any = await api.ReloadRules();
+				// 后端现在会回读 Prometheus 做校验，msg 里带真实结论（含「读不到」的具体原因），
+				// 所以这里必须回显 res.msg —— 不能再写死「已同步并热加载」，那正是以前的假成功。
 				if (res.code === 2000) {
-					ElMessage.success('规则已同步并热加载');
+					ElMessage({ type: 'success', message: res.msg || '规则已同步并热加载', duration: 8000, showClose: true });
 				} else {
-					ElMessage.error(res.msg || '同步失败');
+					ElMessage({ type: 'error', message: res.msg || '同步失败', duration: 10000, showClose: true });
 				}
+			} catch (e: any) {
+				// 拦截器 reject 的是后端整个对象，错误信息在 e.msg 上
+				ElMessage({ type: 'error', message: e?.msg || e?.message || '同步异常', duration: 10000, showClose: true });
 			} finally {
 				reloadLoading.value = false;
 			}

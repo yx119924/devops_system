@@ -9,6 +9,7 @@ from dvadmin.alert.services import (
     query_active_alerts,
     sync_rules,
     sync_rules_from_prometheus,
+    verify_rules_loaded,
 )
 from dvadmin.utils.json_response import DetailResponse, ErrorResponse
 from dvadmin.utils.serializers import CustomModelSerializer
@@ -34,7 +35,7 @@ class AlertRuleViewSet(CustomModelViewSet):
     queryset = AlertRule.objects.select_related('group', 'template').all()
     serializer_class = AlertRuleSerializer
     search_fields = ['name', 'expr', 'summary']
-    filter_fields = ['enabled', 'severity', 'template']
+    filter_fields = ['enabled', 'severity', 'template', 'source']
 
     def filter_queryset(self, queryset):
         """前端按列搜索「规则名称/PromQL」传 name=/expr=，需手动 icontains 模糊匹配。
@@ -66,14 +67,50 @@ class AlertRuleViewSet(CustomModelViewSet):
 
     @action(methods=['POST'], detail=False, url_path='reload')
     def reload_rules(self, request):
-        """重新生成规则文件并热加载 Prometheus"""
+        """重新生成规则文件并热加载 Prometheus，然后**回读 Prometheus 校验是否真的生效**。
+
+        ★ 只回报「文件已生成 + reload 返回 200」会把下面这种假成功说成成功：
+          文件写在平台这台机器上，而 Prometheus 读的是它自己的 rule_files 目录。
+          所以这里额外回读 /api/v1/rules，用「规则名是否出现在 Prometheus 列表里」作终态判据。
+        """
         try:
             path, ok = sync_rules()
-            if ok:
-                return DetailResponse(data={'file': path}, msg="规则已同步并热加载")
-            return ErrorResponse(msg="规则文件已生成，但 Prometheus reload 失败")
         except Exception as e:
             return ErrorResponse(msg=f"同步规则失败：{e}")
+        if not ok:
+            return ErrorResponse(
+                msg="规则文件已生成，但 Prometheus reload 失败：请检查「数据源管理」里的 "
+                    "Prometheus 地址，以及 Prometheus 启动参数是否带 --web.enable-lifecycle")
+
+        names = list(
+            AlertRule.objects.filter(enabled=True, source="platform")
+            .order_by("id").values_list("name", flat=True)
+        )
+        if not names:
+            return DetailResponse(
+                data={"file": path, "checked": 0},
+                msg="规则已热加载。当前没有「平台」来源的启用规则，所以下发文件里没有规则"
+                    "（Prom 纳管的规则不下发，属正常）")
+
+        verify = verify_rules_loaded(names)
+        if verify["error"]:
+            return DetailResponse(
+                data={"file": path, **verify},
+                msg=f"规则文件已生成、Prometheus 已 reload，但回读校验失败（{verify['error']}），"
+                    f"无法确认是否真的生效，请到 Prometheus 页面自行确认")
+        if verify["missing"]:
+            return ErrorResponse(
+                data={"file": path, **verify},
+                msg=f"规则文件已生成、reload 也返回成功，但 Prometheus 里读不到 "
+                    f"{len(verify['missing'])} 条规则：{', '.join(verify['missing'][:5])}"
+                    f"{' 等' if len(verify['missing']) > 5 else ''}。"
+                    f"这说明 Prometheus 加载的规则目录不是本机 {path} —— "
+                    f"按 DEPLOY.md 附录 B 第 4 条把该目录挂载/共享给 Prometheus 即可")
+        loaded_from = sorted({f for f in verify["files"].values() if f})
+        return DetailResponse(
+            data={"file": path, **verify},
+            msg=f"已下发并确认生效：{verify['checked']} 条规则已出现在 Prometheus"
+                + (f"（来源文件 {', '.join(loaded_from)}）" if loaded_from else ""))
 
     @action(methods=['POST'], detail=False, url_path='preview')
     def preview(self, request):

@@ -216,10 +216,22 @@ docker run --rm --entrypoint python xwops/django:1.0.0 -c \
 ```
 
 > 🔴 **不配这个值，告警 Webhook 一律返回 503。**
-> 也可以改由 `backend/conf/env.py` 的 `ALERT_WEBHOOK_SECRET` 提供（两者取其一，compose 环境变量优先）。
+>
+> ★★ **取值优先级（别被「二选一」误导）**：后端读的是
+> `getattr(settings, 'ALERT_WEBHOOK_SECRET', '') or os.environ.get('ALERT_WEBHOOK_SECRET', '')`
+> —— **`backend/conf/env.py` 里的值优先**，只有当它在 `env.py` 里为**空**时才会去读 compose 环境变量。
+> 而 `env.example.py` 默认给的占位串 `CHANGE_ME_AT_LEAST_32_CHARS_RANDOM` 有 34 字符，
+> **能通过 ≥32 的长度检查**（`security_preflight` 也不会报错）
+> ⇒ 若你只在 `.env` 填了真值、没动 `env.py`，平台实际用的仍是占位串，
+> Alertmanager 带真值推过来会被判 **401「认证失败」**（而不是 503，很容易误判成「密钥没配」）。
+>
+> **正确做法**：`env.py` 与 `.env` 填**同一个真值**；或把 `env.py` 里那行改成
+> `ALERT_WEBHOOK_SECRET = ""`（留空 = 让 compose 环境变量生效）。
 
 > ★ 同时记得改 **`docker_env/alertmanager/alertmanager.yml`** 里的
 > `http_config.authorization.credentials`，填成同一个值，否则 Alertmanager 推过来会被 401。
+> ★ 该文件里的 webhook `url` 是**占位值**，地址怎么填见附录 B —— 填错的表现是 Alertmanager
+> 侧 `i/o timeout`，而平台侧**完全无感知**。
 
 ### 4.2 后端 `backend/conf/env.py`（应用配置）
 
@@ -711,6 +723,13 @@ docker compose down        # 删除容器（数据仍在 docker_env/ 下）
 | 登录后部分页面 **500** | 数据未初始化，或超管部门引用悬空 | 确认第 6.3 步已执行（该 SQL 末尾自带部门修复） |
 | `md5sum -c` 报 **FAILED** | 镜像包下载不完整 | 重新下载，别用传输中断的文件 |
 | `docker load` 报 **no space left** | 磁盘不足 | 至少留 5 GB |
+| 告警**收不到**，且「活跃告警」页也空 | 链路断在某一层。**先看 Alertmanager 自己的日志**（`docker logs <am容器>`）：<br>· 完全没有投递记录 → Prometheus 根本没把告警送给 AM，查 Prom 的 `alerting.alertmanagers`<br>· 出现 `401` → 密钥不一致（见 4.1 的优先级说明）<br>· 出现 `connection refused` / `i/o timeout` → webhook 地址不可达（见附录 B）<br>· 出现 `202` → AM 已送达，转查 `docker logs dvadmin3-celery` 与「告警事件」页 | 见 4.1 / 附录 B |
+| 「活跃告警」页报 **未配置Alertmanager地址** | 该页是**实时透传** `GET {AM}/api/v2/alerts`，需要在「监控告警 → 数据源管理」建一条 `source_type=alertmanager`、**状态启用**的记录 | 该页与 webhook 落库是**两条独立通路**，必须分别排查 |
+| 「告警事件」有记录但飞书/钉钉/邮件没收到 | 通知渠道未配置、未启用，或规则 `enabled=False` 被跳过；也可能是渠道密钥读取失败 | 查「通知渠道」页的启用状态与 `dvadmin3-celery` 日志 |
+| 点「**同步规则**」提示成功，但 Prometheus 里**没有**新规则 | 平台把规则文件写在 **XwOps 本机**，**从不投递**到 Prometheus 主机；`/-/reload` 返回 200 只代表「重载动作被接受」，不代表文件在那儿。★ 09-29 起该按钮会**回读** Prometheus，这种情况会直接报「读不到 N 条规则」而不再假报成功 | 见附录 B 第 4 条（三条路 + 验证命令） |
+| 点了「同步规则」，提示成功、回读也通过，但某条规则**就是没下发** | 该规则「来源」是 **Prometheus**（从「同步 Prom」拉进来的），按「双源共存」策略**不下发**。要让平台接管它，把「来源」改成「平台」 | 见附录 B 第 4 条「哪些规则会被下发」 |
+| 平台建的规则触发了，但**没收到告警** | 平台规则 labels 只有 `severity`，命中不了 Alertmanager 里 `match: {team: ops}` 的路由，落到默认 receiver。给规则加「附加标签」`{"team":"ops"}`，并把 AM 的 `route.receiver` 也改成平台 | 见附录 B 第 4 条「要能被 Alertmanager 路由到」 |
+| 点「**同步 Prom**」能成功，但「同步规则」不生效 | 两个按钮**方向相反、通道也不同**：前者走 HTTP API 跨机器可用；后者是「本机写文件 + 远端 reload」 | 同上 |
 
 **改动 nginx 配置后必须重载才生效**：
 
@@ -727,7 +746,7 @@ docker exec dvadmin3-web nginx -s reload
 | 占位值 | 出现位置 | 说明 |
 |---|---|---|
 | `203.0.113.10` | 文档 / 配置注释 | 原公网 IP → 换成你的服务器地址 |
-| `192.0.2.x` | `backend/dvadmin/alert/rules/devops_rules.yml` | 原内网 IP → 换成你的被监控机 IP，否则告警规则匹配不到目标 |
+| `192.0.2.x` | `backend/dvadmin/alert/rules/devops_rules.yml`、`DEPLOY.md` 附录 B | 原内网 IP → 换成你的被监控机 IP，否则告警规则匹配不到目标（附录 B 里用 `192.0.2.163` 指代「与监控栈同机的那台」） |
 | `172.31.0.x` | `docker-compose.yml` / `docker_env/nginx/my.conf` | 容器内网 IP，**多数情况无需改**；仅当与办公网段冲突时，两处一起改 |
 | `ops@example.com` | `web/src/views/alert/channel/crud.tsx` | 邮件通知渠道的占位提示文案 |
 | `myapp` | 日志采集相关页面与注释 | 原业务标识 → 换成你自己的应用名 |
@@ -742,8 +761,283 @@ docker exec dvadmin3-web nginx -s reload
 **不包含在 `docker-compose.yml` 内**，仅在需要独立部署 Prometheus + Alertmanager 时使用：
 
 1. 按你的实际环境修改两份 `yml` 里的 IP（全部是占位值）；
-2. `alertmanager.yml` 的 webhook 需指向 `http://172.31.0.12:8000/api/alert/webhook/receiver/`；
+2. `alertmanager.yml` 的 webhook 地址按 Alertmanager **跑在哪**来选，**别照抄占位值**：
+
+   | Alertmanager 的位置 | 填什么 |
+   |---|---|
+   | 与 compose 在**同一个** docker 网络里 | `http://172.31.0.12:8000/api/alert/webhook/receiver/`（直连 django，**单层** `/api`） |
+   | 宿主机上另一个独立 compose / 裸机 / 另一台机器 | `http://<XwOps宿主机IP>:8080/api/api/alert/webhook/receiver/`（走 nginx，**双层** `/api`） |
+
+   > `172.31.0.12` 是 compose 里 django 容器的静态 IP，**只在那个 docker 网络内可达**。
+   > 独立部署的 Alertmanager 容器跨 docker bridge 通常**连不通**（docker 的 FORWARD 链默认 DROP），
+   > 症状是 Alertmanager 日志里 `dial tcp 172.31.0.12:8000: i/o timeout`，平台侧一点记录都没有。
+   > 且 compose 里 `8000` 只绑了 `127.0.0.1`，**同网段的其它机器也够不到** ⇒ 跨机器一律走 `8080` + **双层** `/api`。
 3. 若企业内网已有 Prometheus，建议直接复用，**不要重复部署**，避免告警双发。
+4. ★★ **告警规则的「下发」要你自己接一根线 —— 平台不会替你送文件**（09-29 现场踩到）
+
+   点「同步规则」时平台只做两件事（`alert/services.py::sync_rules`）：
+
+   | 步骤 | 动作 | 作用范围 |
+   |---|---|---|
+   | ① | 把平台库里 **`enabled=True` 且 `source='platform'`** 的规则渲染成 YAML，写入 `/backend/dvadmin/alert/rules/devops_rules.yml`（**同名文件是整体覆盖**） | **仅 XwOps 本机磁盘** |
+   | ② | `POST {数据源管理里的 Prometheus}/-/reload` | 让 Prometheus 重读**它自己磁盘上**的规则目录 |
+   | ③ | **回读** `{prom}/api/v1/rules`，校验规则名是否真的出现在 Prometheus 里 | 判断①写出的文件到底到没到 Prometheus |
+
+   > ★ **哪些规则会被下发？看规则的「来源」字段**（09-29 起新增）：
+
+   | 来源 | 怎么来的 | 是否下发 |
+   |---|---|---|
+   | **平台**（`platform`） | 在「告警规则」页**新建**的规则（默认值） | ✅ 会写进 `devops_rules.yml` |
+   | **Prometheus**（`prom`） | 点「**同步 Prom**」从 Prometheus 反向拉进来的存量规则 | ❌ **只纳管、不下发** |
+
+   > 为什么要分：这些规则在 Prometheus 那边**本来就有**。平台若再写一份，同名规则会分属两个文件，
+   > Prometheus 视为**两条独立规则** ⇒ **告警双发**。所以默认「双源共存」：**平台只下发自己新建的**。
+   > 想让某条 Prom 规则改由平台接管，在页面上把它的「来源」改成「平台」即可
+   > （改之前先确认 Prometheus 侧那份已停用/删除，否则同样双发）。
+   >
+   > ★ 升级到本版本时，**存量规则会被自动标记为「Prometheus」**（数据迁移 `alert/0007_*`），
+   > 所以升级后第一次点「同步规则」**不会**把历史规则整份推下去 —— 行为与升级前一致，完全可逆。
+
+   **中间没有「投递」这一步** —— `alert/` 整个 app 里 `paramiko` / `scp` / `sftp` / `rsync` **0 命中**，
+   `docker-compose.yml` 里也没有任何把 `rules/` 目录挂给 Prometheus 的挂载。
+   ⇒ **只要 Prometheus 不在 XwOps 这台机器上，规则永远到不了它那儿**；
+   而 `/-/reload` 照样返回 200 ⇒ **09-29 之前**界面照样弹「规则已同步并热加载」，**这是假成功**。
+   （09-29 起已加**回读校验**，这种情况会被拦下并报错，见下文「回读校验已经内置」。）
+
+   > ★ 这与「同步 Prom」方向相反、通道也不同：那个按钮走 **HTTP API**
+   > （`GET {prom}/api/v1/rules`），跨机器没问题，所以它是真成功。
+   > **一个真成功、一个假成功，别把两者混着看。**
+
+   ### ★★ 第 0 步：先确认 Prometheus 与平台是不是同一台机器（本项目就是）
+
+   ```bash
+   # 在平台所在机器上跑：能同时看到 prometheus 进程与 dvadmin3-* 容器 ⇒ 同机
+   ps -ef | grep [p]rometheus
+   docker ps --format '{{.Names}}' | grep dvadmin3
+   ```
+
+   本项目：XwOps、Prometheus、Alertmanager、Grafana **都在同一台机器上**（示例 `192.0.2.163`），
+   且 Prometheus 是**主机部署**，`rule_files` 目录 = `/opt/prometheus/rules`。
+
+   ★ **实测该目录的内容**（`ls -l /opt/prometheus/rules/`，共 15 项）：
+
+   `backup_postgres.yml`、`component.yml`、`etl.yml`、`gpu.yml`、`health_check.yml`、
+   `jcl_node.yml`、`multi_ping.yml`、`node.yml`、`ping.yml`、`process.yml`、`web.yml`
+   ＋ 4 个备份：`multi_ping.yml_bak`、`rules.yml_bak`、`ws_node.yml_bak`、`ws_ping.yml_bak`
+
+   ⇒ **里面没有 `devops_rules.yml`** ⇒ 平台下发属于「**新增一个文件**」，
+   **不会覆盖任何现有规则**（就是上面三种情况里最安全的那一种）。**不需要先备份。**
+
+   > ⚠️ 顺带确认两点：
+   > ① **`rule_files` 的 glob 必须是 `*.yml`**（目录里躺着 4 个 `*_bak`）。
+   >    若写成 `*`，Prometheus 会把 `*_bak` 也当规则文件解析 ⇒ **启动/重载失败**。
+   >    确认：`grep -A3 rule_files /path/to/prometheus.yml`
+   > ② 该目录下所有文件属主是 `ubuntu:ubuntu`；容器内是 root 经 bind mount 写文件 ⇒
+   >    新建的 `devops_rules.yml` 属主会是 `root`，但默认 umask 022 下权限是 **644，Prometheus 读得到**。
+   >    若 reload 报 `permission denied` 再处理属主/umask（bind mount **没有** NFS 的 `root_squash` 问题）。
+
+   **同机 ⇒ 一行 bind mount 就通，不需要 NFS、不需要改代码、不需要额外的投递脚本：**
+
+   ```yaml
+   # docker-compose.yml：dvadmin3-django 与 dvadmin3-celery 两个服务各加一行
+   volumes:
+     - ./backend:/backend
+     - /opt/prometheus/rules:/backend/dvadmin/alert/rules   # ★ 直接写进 Prometheus 的 rule_files 目录
+   ```
+
+   更干净的做法 —— 不动仓库里的 compose，改用**覆盖文件**（compose 自动合并）：
+
+   ```yaml
+   # docker-compose.override.yml（放在与 docker-compose.yml 同一目录，可 gitignore）
+   services:
+     dvadmin3-django:
+       volumes:
+         - /opt/prometheus/rules:/backend/dvadmin/alert/rules
+     dvadmin3-celery:
+       volumes:
+         - /opt/prometheus/rules:/backend/dvadmin/alert/rules
+   ```
+
+   ```bash
+   docker compose up -d --no-build dvadmin3-django dvadmin3-celery
+   # ① 两个挂载点都在（不是只有 ./backend:/backend）
+   docker inspect dvadmin3-django --format '{{range .Mounts}}{{.Destination}}{{"\n"}}{{end}}'
+   # ② 容器里能看到 Prometheus 那边原有的规则文件
+   docker exec dvadmin3-django ls -l /backend/dvadmin/alert/rules/
+   ```
+
+   > ★ 容器里是 root，对宿主 `/opt/prometheus/...` 有写权限 —— **bind mount 没有 NFS 的 `root_squash` 问题**。
+   > ★ 它比 `./backend:/backend` 更深，docker 让**更深的那条生效**，正好覆盖 `/backend/dvadmin/alert/rules` 这个子目录。
+   > ★ 若走覆盖文件而挂载**没生效**（`docker inspect` 只看到 `/backend`），说明这版 compose 是按「整体替换」而非「追加」
+   > 合并 `volumes` 的 ⇒ 改成直接写进 `docker-compose.yml`。
+
+   ### 只有「异机」时，才需要考虑下面的方案
+
+   **几条路，按你的环境选一条**（★ **平台要继续做规则源，就必须有人把这两个目录接起来**；选之前先读下面的 ⚠️ 与「前置：先摸清 Prometheus 的形态」）：
+
+   | 方案 | 做法 | 代码改动 | 适用 / 评价 |
+   |---|---|---|---|
+   | **B. 共享目录（推荐，零代码）** | 163 侧 NFS 导出规则目录 → XwOps 宿主机挂载 → compose 把该目录**嵌套挂载**到 `/backend/dvadmin/alert/rules` | **0 行** | `RULES_DIR` 恰好就是这个路径，挂上去即通；一次配好最省心 |
+   | D. 平台内加「投递」 | 在 `sync_rules()` 里用 SSH/SFTP 把生成的 yml 推到 Prometheus 主机 + reload + **回读校验** | ~100 行 + 配置项 | 平台自闭环、不依赖 NFS；需 Prometheus 主机的 SSH 凭据 |
+   | G. rsync 应急 | XwOps 机加一条 cron：`rsync` 到 163 + `curl -X POST /-/reload` | 0 行（外部脚本） | 5 分钟能跑通，但有延迟、失败静默；**只适合先把链路验证通** |
+   | A. 单机自建 | compose 给 Prometheus 加只读挂载 `- ./backend/dvadmin/alert/rules:/etc/prometheus/rules:ro` | 0 行 | 仅当 Prometheus 能与平台同机（内网已有监控栈时通常不适用） |
+   | ~~C. 平台不下发~~ | 规则只在 Prometheus 侧维护，平台只读 | — | ★ **仅在"不打算在平台建规则"时成立**。若你建这个系统的初衷就是"别去手改 Prometheus 配置文件"，**不要选 C** |
+
+   > ⚠️ **覆盖风险要先判清**：平台**固定只写一个文件** `<RULES_DIR>/devops_rules.yml`。
+   >
+   > | 情况 | 后果 |
+   > |---|---|
+   > | `rule_files` 目录里**没有**同名文件 | 只是**新增一个文件**，不动任何现有规则（**最安全**） |
+   > | **已有**同名文件 | 会被**整体覆盖** ⇒ 先备份它，或先点「同步 Prom」把里面所有规则纳管进平台再接管 |
+   > | 两个不同文件里有**同名 alert** | **双发** ⇒ 需先去重 |
+
+   ### 前置：先摸清 Prometheus 的形态（所有方案的共同前提）
+
+   ```bash
+   # 在 Prometheus 主机上 —— 它是 docker 还是裸机？
+   docker ps --format '{{.Names}}\t{{.Image}}' | grep -i prom   ||   ps -ef | grep [p]rometheus
+
+   # docker 部署：配置与规则目录从哪挂进来
+   docker inspect <prom容器> --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
+   docker exec <prom容器> sh -c 'grep -A4 rule_files /etc/prometheus/prometheus.yml; ls -l /etc/prometheus/rules/'
+
+   # 裸机部署：看 --config.file 指向哪
+   ps -ef | grep [p]rometheus | tr ' ' '\n' | grep -E 'config.file|enable-lifecycle'
+
+   # 平台侧：生成的文件落在哪
+   ls -l ~/<部署目录>/backend/dvadmin/alert/rules/
+   ```
+
+   ⇒ 只需记住两件事：**`rule_files` 指向的目录**（= 推送/挂载的目标）、**该目录里现有的文件名**（= 要不要先备份）。
+
+   ### 方案 B 的落地步骤（零代码，推荐）
+
+   ```bash
+   # ① Prometheus 主机：导出规则目录（示例 /opt/prometheus/rules，按上面查到的实际值替换）
+   apt -y install nfs-kernel-server                 # CentOS: yum -y install nfs-utils
+   echo '/opt/prometheus/rules 192.0.2.0/24(rw,sync,no_subtree_check)' >> /etc/exports
+   exportfs -ra && systemctl enable --now nfs-server
+
+   # ② XwOps 宿主机：挂载 + 写进 fstab（否则重启就断）
+   mount -t nfs <prom主机>:/opt/prometheus/rules /mnt/prom-rules
+   echo '<prom主机>:/opt/prometheus/rules /mnt/prom-rules nfs defaults,_netdev 0 0' >> /etc/fstab
+
+   # ③ 双向可见性探针（写一个文件，两边都该看得到）
+   touch /mnt/prom-rules/.xwops_probe && ls -l /mnt/prom-rules/.xwops_probe
+   ```
+
+   给 compose 的 **django 与 celery 两个服务**各加一行**嵌套挂载**（比 `./backend:/backend` 更深，
+   docker 会让**更深的那条生效**，正好覆盖掉那个子目录）：
+
+   ```yaml
+   volumes:
+     - ./backend:/backend
+     - /mnt/prom-rules:/backend/dvadmin/alert/rules     # ★ 让平台直接写到 NFS 上
+   ```
+
+   ```bash
+   docker compose up -d --no-build dvadmin3-django dvadmin3-celery
+   docker exec dvadmin3-django ls -l /backend/dvadmin/alert/rules/    # 应能看到 NFS 上的内容
+   ```
+
+   > ★ 若 Prometheus 是 **docker 部署**：它的容器必须已经把宿主这个目录挂进去（用 `docker inspect` 确认）；
+   > 若 `rule_files` 只是**容器内路径而宿主没挂出来**，得先给 Prometheus 补一条宿主挂载，才能做 NFS。
+
+   > ⚠️ **NFS 最常踩的一个坑：`root_squash`**。NFS 默认把客户端 root 压成 `nobody`，
+   > 而容器里的 django 是以 root 身份写文件的 ⇒ 会报 `Permission denied`（且看起来像"平台没生成文件"）。
+   > 两种解法，选一种：
+   > - 导出参数用 `no_root_squash`（内网可控时够用）；
+   > - 或统一属主：`all_squash,anonuid=<uid>,anongid=<gid>`，并让该 uid 在两边都存在、对目录有写权限。
+   >
+   > 验证方式很直接（**在容器里写、在 Prometheus 主机上看**）：
+   > ```bash
+   > docker exec dvadmin3-django sh -c 'echo probe > /backend/dvadmin/alert/rules/.perm_probe'
+   > # 然后在 Prometheus 主机上：ls -l <rule_files 目录>/.perm_probe
+   > ```
+
+   ### 方案 D 的落地要点（要在平台内做投递时）
+
+   在 `sync_rules()` 里加「推送 + 回读」，建议这样设计：
+
+   - 配置项加在 `backend/conf/env.py`，**全部留空则自动跳过投递**（保持对单机部署的兼容）：
+     `ALERT_RULES_DELIVER_HOST / _PORT / _USER / _PATH`；凭据复用平台已有的加密凭据体系，**不要明文写密码**。
+   - 推送用 **base64 中转**（`echo <b64> | base64 -d > <path>`），**不要用 heredoc** —— 引号与编码会被 shell 吃掉。
+   - 顺序必须是：**推送成功 → reload → 回读**；任一环失败都返回错误，绝不提示"成功"。
+
+   ### ★ 「回读校验」已经内置（09-29 起）
+
+   「同步规则」不再只看 `POST {prom}/-/reload` 是否返回 200，而是**再回读一次
+   `{prom}/api/v1/rules`**，用「刚提交的规则名有没有出现在 Prometheus 里」作终态判据：
+
+   | 回读结果 | 界面提示 |
+   |---|---|
+   | 规则名全部出现 | ✅ `已下发并确认生效：N 条规则已出现在 Prometheus（来源文件 …）` |
+   | 有规则名没出现 | ❌ 直接列出**读不到的那几条**，并指出「Prometheus 加载的规则目录不是本机 … 那个目录」 |
+   | 读不回来（Prom 不可达 / 返回错误） | ⚠️ 如实说「无法确认是否生效」，**不谎报成功** |
+
+   ⇒ 以后判断标准是提示里的「**确认生效**」，而不是「成功」两个字。
+
+   > ★ `reload_prometheus()` 自身的判据没变（仍是 `status_code == 200`），真正的判据在它后面的回读。
+   > 实现位置：`backend/dvadmin/alert/services.py` 的 `reload_prometheus()` / `verify_rules_loaded()`，
+   > 以及 `backend/dvadmin/alert/views/rule.py::reload_rules`。
+
+   ### 平台生成的规则要能被 Alertmanager 路由到（09-29 已按「两者都做」实现）
+
+   平台生成的规则 `labels` 里只有 `severity`。若 Alertmanager 的路由是
+   `routes: [{match: {team: ops}, receiver: xwops}]`，这类规则**匹配不上**，会落到
+   `route.receiver`（默认 receiver）⇒ 可能静默丢失。两侧一起做：
+
+   **① 规则侧 —— 给平台规则带上 `team` 标签**
+
+   在「告警规则」页的「**附加标签**」里填一个 JSON 对象：
+
+   ```json
+   {"team": "ops"}
+   ```
+
+   它会合并进 Prometheus 规则的 `labels`（`severity` 由「级别」字段生成，别写在这里）。
+   需要按业务线分流时，改这个 `team` 值即可，无需改代码。
+
+   **② Alertmanager 侧 —— 让默认兜底也走平台的 receiver**
+
+   ```yaml
+   route:
+     receiver: xwops                       # ★ 原来可能是 wechat-ops / 其它，改成平台
+     routes:
+       - match: {team: ops}
+         receiver: xwops
+   receivers:
+     - name: xwops
+       webhook_configs:
+         - url: http://127.0.0.1:8000/api/alert/webhook/receiver/   # 地址见本附录第 2 条
+   ```
+
+   ```bash
+   amtool check-config /etc/alertmanager/alertmanager.yml        # 先校验语法
+   curl -X POST http://127.0.0.1:9093/-/reload                   # 再热加载
+   amtool config routes test --config.file=/etc/alertmanager/alertmanager.yml \
+         alertname=test severity=warning                         # 看它到底路由到哪个 receiver
+   ```
+
+   > ⚠️ 改 `route.receiver` 的**副作用**：原本落到默认 receiver 的**其它告警**（没有 `team` 标签的那些）
+   > 会一并改道到平台。若那批里混着不该发到平台的东西，先把它们显式写进 `routes` 单独指回原 receiver。
+   >
+   > ⚠️ 平台**不会**替你改 Alertmanager 的配置 —— 上面 ② 必须手工做，或把这份 `alertmanager.yml`
+   > 换成 `docker_env/alertmanager/alertmanager.yml` 的写法。
+
+   > ★ **「预览」按钮有值 ≠ 规则已注册**：`rule/preview` 走的是 `POST /api/v1/query`（即时查询），
+   > 只要表达式能算出值就会返回结果 —— 与「这条规则在不在 Prometheus 里」完全无关。
+
+   **验证规则真的进了 Prometheus（唯一可信判据，别信界面的「成功」）**：
+
+   ```bash
+   # ① XwOps 宿主机：文件确实生成了、且含你新增的规则
+   grep -c "alert: <你的规则名>" <部署目录>/backend/dvadmin/alert/rules/devops_rules.yml
+   # ② Prometheus 主机：它的 rule_files 指向哪、那个目录里有没有这个文件
+   grep -A3 rule_files /path/to/prometheus.yml && ls -l <那个目录>
+   # ③ ★ 读回：Prometheus 自己认不认这条规则（返回空 = 没到）
+   curl -s 'http://<prom>:9090/api/v1/rules' | grep -o '"name":"<你的规则名>"' | head -1
+   ```
 
 ## 附录 C. 目录职责速查
 

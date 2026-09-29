@@ -333,7 +333,9 @@ export default defineComponent({
         },
         {
           label: '活跃告警', icon: Bell, color: '#f56c6c', bg: '#fef0f0',
-          path: '/alertEvent', extra: `本周 ${alertSummary.value.week_total} 条`,
+          // ★ 活跃告警 → 跳「活跃告警」菜单（/alertManage，实时透传 Alertmanager），
+          //   不要跳 /alertEvent（历史告警）—— 那里是落库的历史事件
+          path: '/alertManage', extra: `本周 ${alertSummary.value.week_total} 条`,
           target: activeAlerts.value, display: 0,
         },
         {
@@ -342,9 +344,13 @@ export default defineComponent({
           target: onlineSessions.value, display: 0,
         },
         {
-          label: '严重告警(周)', icon: Promotion, color: '#e6a23c', bg: '#fdf6ec',
-          path: '/alertEvent', extra: `警告 ${alertSummary.value.warning} · 提示 ${alertSummary.value.info}`,
-          target: alertSummary.value.critical, display: 0,
+          // 这张卡的落点本来就是 /alertEvent ⇒ 名称改成「历史告警」，
+          // 数字也跟着换成「历史告警」的口径（近 7 天告警条数），
+          // 否则会出现「标题写历史告警、数字却是本周严重数」的名实不符。
+          // 完整的三级分布看下方「告警级别分布」图，这里只放最要紧的两级。
+          label: '历史告警', icon: Promotion, color: '#e6a23c', bg: '#fdf6ec',
+          path: '/alertEvent', extra: `严重 ${alertSummary.value.critical} · 警告 ${alertSummary.value.warning}`,
+          target: alertSummary.value.week_total, display: 0,
         },
         {
           label: '下发任务(今日)', icon: Position, color: '#7b61ff', bg: '#f1edff',

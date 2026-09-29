@@ -38,16 +38,31 @@ def _require_url(source_type, label):
 
 
 def generate_rules():
-    """遍历所有启用规则，生成 Prometheus alerting rules yaml 文件，返回文件路径"""
+    """遍历「平台来源」的启用规则，生成 Prometheus alerting rules yaml 文件，返回文件路径。
+
+    ★ 只导出 source == "platform" 的规则（双源共存）：
+      - source="platform"：在平台页面新建的规则，由平台负责下发；
+      - source="prom"    ：从 Prometheus 反向同步建档的规则，它本来就存在于 Prometheus
+                           自己的规则文件里 —— 若这里再写一份，同名规则会分属两个文件，
+                           Prometheus 视为两条独立规则 ⇒ 告警双发。所以不下发。
+    合并 rule.labels 里的附加标签（如 team），severity 始终由「级别」字段生成。
+    """
     from dvadmin.alert.models import AlertRule
 
     rules = []
-    for rule in AlertRule.objects.filter(enabled=True).order_by("id"):
+    for rule in AlertRule.objects.filter(enabled=True, source="platform").order_by("id"):
+        labels = {"severity": rule.severity}
+        extra = rule.labels if isinstance(rule.labels, dict) else {}
+        for key, value in extra.items():
+            # severity 由「级别」字段统一生成，不允许被附加标签覆盖；空值不写入
+            if str(key) == "severity" or value in (None, ""):
+                continue
+            labels[str(key)] = value
         rules.append({
             "alert": rule.name,
             "expr": rule.expr,
             "for": rule.duration or "1m",
-            "labels": {"severity": rule.severity},
+            "labels": labels,
             "annotations": {
                 "summary": rule.summary or rule.name,
                 "description": rule.description or "",
@@ -146,13 +161,52 @@ def fetch_prometheus_rules():
     return groups_out, None
 
 
+def verify_rules_loaded(names):
+    """回读 Prometheus /api/v1/rules，确认规则是否真的被它加载了。
+
+    ★ 为什么要回读：写好文件 + `/-/reload` 返回 200 **不等于**规则生效 ——
+      reload 只是让 Prometheus 重新读**它自己的** rule_files 目录；
+      如果平台写文件的那台机器／路径 ≠ Prometheus 读的目录，就是「假成功」。
+      唯一的判据是读回消费方（Prometheus）自己的规则列表。
+
+    返回 dict：
+      {"checked": n, "loaded": [...], "missing": [...],
+       "files": {规则名: 所在文件}, "error": None 或 人类可读原因}
+      error 非空表示「读不回来、无法判断」，**不等于**下发失败。
+    """
+    want = [n for n in names if n]
+    groups, err = fetch_prometheus_rules()
+    if err:
+        return {"checked": len(want), "loaded": [], "missing": list(want),
+                "files": {}, "error": err}
+
+    want_set = set(want)
+    files = {}
+    for g in groups:
+        for r in g["rules"]:
+            name = r.get("alert") or ""
+            if name in want_set and name not in files:
+                files[name] = r.get("source_file") or g.get("file") or ""
+    loaded = sorted(files)
+    loaded_set = set(loaded)
+    return {
+        "checked": len(want),
+        "loaded": loaded,
+        "missing": [n for n in want if n not in loaded_set],
+        "files": files,
+        "error": None,
+    }
+
+
 def sync_rules_from_prometheus():
     """从 Prometheus 反向同步 alerting 规则到 XwOps 库（可逆：仅改 XwOps 库，不动 Prom 资源）。
 
     策略：
     - 按 alert 名匹配 XwOps 库 AlertRule
-    - 命中：更新 expr/duration/severity/summary/description，**保留 group/template/enabled**（不覆盖用户配置）
-    - 未命中：新建，默认启用（平台纳管即启用）。Prom 的 state 是运行态（是否正在触发），与平台是否纳管无关；已存在规则的 enabled 由用户手动控制，同步不覆盖
+    - 命中：更新 expr/duration/severity/summary/description，**保留 group/template/enabled/source**（不覆盖用户配置）
+    - 未命中：新建，默认启用（平台纳管即启用），并把 source 标为 "prom"（只纳管、不参与下发，
+      避免与 Prometheus 原有规则形成同名不同文件的重复规则 ⇒ 双发）。
+      Prom 的 state 是运行态（是否正在触发），与平台是否纳管无关；已存在规则的 enabled 由用户手动控制，同步不覆盖
     - 任何一步出错不中断，记录到 errors 列表
 
     返回 {"created":[...], "updated":[...], "skipped":[...], "errors":[...], "total_in_prom": int}
@@ -197,6 +251,7 @@ def sync_rules_from_prometheus():
                         summary=r["summary"] or None,
                         description=r["description"] or None,
                         enabled=True,  # 平台纳管即启用；Prom 的 state 是运行态，不决定平台启用
+                        source="prom",  # ★ 反向同步建档 ⇒ 只纳管不下发，避免与 Prom 原有规则双发
                     )
                     result["created"].append({
                         "name": name,

@@ -49,7 +49,15 @@ REDIS_URL = f'redis://:{REDIS_PASSWORD or ""}@{REDIS_HOST}:6379'
 #   导致 Alertmanager 推来的告警被全部丢弃。
 #   必须与 docker_env/alertmanager/alertmanager.yml 的
 #   http_config.authorization.credentials 保持一致。
-#   （也可改由 compose 环境变量 ALERT_WEBHOOK_SECRET 注入，两者取其一。）
+#
+#   ★★ 优先级：**本文件的值优先于** compose 环境变量 ALERT_WEBHOOK_SECRET。
+#      webhook.py 读的是 `getattr(settings, 'ALERT_WEBHOOK_SECRET', '') or os.environ.get(...)`，
+#      只有这里为空串时才会去读环境变量（DEPLOY.md 4.1 已同步说明）。
+#      ⇒ 下面这个占位串有 34 字符，**能通过 ≥32 的长度检查**，security_preflight 不会报，
+#        若你只在 `.env` 里填了真值，平台仍拿占位串比对，Alertmanager 推来会是
+#        **401「认证失败」**（不是 503，极易误判成「密钥没配」）。
+#      ⇒ 要么这里也填同一个真值，要么把整行改成 ALERT_WEBHOOK_SECRET = ""
+#        （留空 = 让 compose 环境变量生效）。
 #
 #   生成一个：python -c "import secrets; print(secrets.token_urlsafe(32))"
 ALERT_WEBHOOK_SECRET = "CHANGE_ME_AT_LEAST_32_CHARS_RANDOM"
