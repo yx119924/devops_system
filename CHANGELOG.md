@@ -28,12 +28,16 @@
 | 前端两列 + 修正假成功提示 | `web/src/views/alert/rule/crud.tsx`、`index.vue` | 新增「来源」「附加标签」两列；「同步规则」改为**回显后端 msg**（原来写死 `规则已同步并热加载`） |
 | 首页卡片跳转修正 + 活跃告警「指纹」 | `web/src/views/system/home/index.vue`、`web/src/views/alert/manage/index.vue` | ① 「**活跃告警**」卡片原来跳的是 `/alertEvent`（历史告警）→ 改为 `/alertManage`（活跃告警菜单）；② 「**严重告警(周)**」卡片改名为「**历史告警**」，数值口径同步换成近 7 天总数，避免「标题写历史告警、数字是本周严重数」的名实不符；③ 活跃告警「详情」新增 **Alertmanager 指纹**，用于判断多条看似相同的告警到底是不是同一条 |
 | 运行时产物移出版本控制 | `.gitignore`（+ `backend/dvadmin/alert/rules/.gitkeep`） | `backend/dvadmin/alert/rules/*.yml` 是 `generate_rules()` 的**运行时产物**，每次「同步规则」整份覆盖，内容是本环境真实的规则名/job/阈值 —— 之前被提交进了公开仓库。现在改为忽略，只保留 `.gitkeep` 占位 |
+| 新增**增量更新手册** | `UPDATE.md`（+ `README.md` / `DEPLOY.md` 索引） | 把「环境已跑起来后怎么打一次更新」写成可照抄的 runbook：① 按「目标机能不能上网」分三条代码通道（`git pull` / 离线补丁包 / 配 SSH key）；② 目标机不能就地构建前端时的两种交付（重建镜像 `save`/`load`、应急只换 `dist` + bind mount）；③ 规则投递的 compose override 写法与「容器内写→宿主机看」验证法；④ Alertmanager 两个手工改动；⑤ 回归验收清单与回滚。附 8 个关键文件的 md5 供对账 |
+| `.gitignore` 补 `docker-compose.override.yml` | `.gitignore` | 该文件里写的是**本机才有的宿主路径**（如 Prometheus 规则目录），换个环境就不一样，不进版本控制 |
 
 > ⚠️ `devops_rules.yml` 已从索引移除，但**它仍存在于 v1.0.0 的提交历史里**（公开仓库）。
 > 若要彻底清除，需重写历史后强推（与之前 amend + force-push 的做法一致），
 > 或至少在下一次 push 时用新提交覆盖。
 
 ### 升级注意
+
+> ★ **逐条命令见 [`UPDATE.md`](UPDATE.md) · 增量更新手册**。下面只是要点。
 
 - 需要执行 **1 次数据库迁移**：`python manage.py migrate alert`（新增 2 列 + 1 步数据迁移）。
 - ★ 改了前端源码 ⇒ **必须重建 web 镜像**（本项目前端是编译进镜像的，不是挂载）。

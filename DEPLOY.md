@@ -492,6 +492,11 @@ docker exec dvadmin3-django python manage.py security_preflight
 
 ## 9. 日常运维
 
+> ★ **本手册只覆盖「首次部署」**。环境已经跑起来、日后要打一次代码更新（改后端 / 改前端 /
+> 加迁移 / 配规则投递 / 回滚），请走 **[`UPDATE.md`](UPDATE.md) · 增量更新手册** ——
+> 那份按「目标机能不能上网」分了三条代码通道，并写清了内网不能就地构建前端时的两种替代办法。
+> 下面这几条命令是通用机制，两份文档一致。
+
 ### 改前端代码
 
 前端是 **`npm run build` 出的静态文件，被 `COPY` 进镜像**的（`/usr/share/nginx/html`），

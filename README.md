@@ -78,7 +78,8 @@
 ├── init/01_seed_config.sql      # 初始化数据：菜单、角色、权限、字典、系统配置
 ├── docker/                      # 镜像加载脚本 + 校验清单（镜像本体走 Releases）
 ├── docker-compose.yml           # 5 个服务的编排
-├── DEPLOY.md                    # ★ 从零部署手册（唯一的部署文档）
+├── DEPLOY.md                    # ★ 从零部署手册（首次部署看这份）
+├── UPDATE.md                    # ★ 增量更新手册（已上线环境打更新看这份）
 ├── DEPLOY-ARCHITECTURE.md       # 部署架构说明
 ├── PRODUCT-ARCHITECTURE.md      # 产品架构说明
 ├── .env.example                 # compose 变量模板
@@ -159,6 +160,7 @@ docker exec dvadmin3-django python manage.py security_preflight
 | 文档 | 内容 |
 |---|---|
 | [`DEPLOY.md`](DEPLOY.md) | **从零部署手册** —— 装 Docker 到验证通过，逐步命令 |
+| [`UPDATE.md`](UPDATE.md) | **增量更新手册** —— 环境已跑起来后打一次代码更新（含内网离线通道、前端产物进内网、回滚） |
 | [`DEPLOY-ARCHITECTURE.md`](DEPLOY-ARCHITECTURE.md) | 部署架构：容器拓扑、网络、端口、数据落盘、备份与恢复 |
 | [`PRODUCT-ARCHITECTURE.md`](PRODUCT-ARCHITECTURE.md) | 产品架构：模块划分、权限模型、关键设计取舍 |
 | [`docker/README.md`](docker/README.md) | 镜像清单、下载与加载方式 |
