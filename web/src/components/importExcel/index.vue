@@ -14,6 +14,7 @@
             :disabled="isUploading"
             :on-progress="handleFileUploadProgress"
             :on-success="handleFileSuccess"
+            :on-error="handleFileUploadError"
             :auto-upload="false"
             drag
         >
@@ -44,7 +45,7 @@ import { request, downloadFile } from '/@/utils/service';
 import {inject,ref} from "vue";
 import { getBaseURL } from '/@/utils/baseUrl';
 import { Session } from '/@/utils/storage';
-import {  ElMessageBox } from 'element-plus'
+import {  ElMessage, ElMessageBox } from 'element-plus'
 import type { Action } from 'element-plus'
 import { useI18n } from 'vue-i18n';
 const { t } = useI18n();
@@ -109,6 +110,21 @@ const updateTemplate=function () {
 const handleFileUploadProgress=function (event:any, file:any, fileList:any) {
   isUploading.value = true
 }
+// 文件上传失败处理
+// ★ 原来没有绑定 on-error，上传失败（401 / 500 / 网络中断）完全静默，
+//   用户只看到"点了没反应"。这里把原因显示出来。
+const handleFileUploadError=function (err:any) {
+  isUploading.value = false
+  let detail = ''
+  try {
+    detail = JSON.parse(err?.message || '{}')?.msg || ''
+  } catch (e) { /* 非 JSON 响应，忽略 */ }
+  ElMessage.error({
+    message: '文件上传失败：' + (detail || err?.message || '请检查登录状态或网络连接'),
+    duration: 8000,
+    showClose: true,
+  })
+}
 // 文件上传成功处理
 const handleFileSuccess=function (response:any, file:any, fileList:any) {
   isUploading.value = false
@@ -129,8 +145,16 @@ const handleFileSuccess=function (response:any, file:any, fileList:any) {
         refreshView()
       },
     })
-  }).catch(()=>{
+  }).catch((e:any)=>{
     loading.value = false
+    // ★ 原来这里是**空 catch** ⇒ 后端返回的校验错误（如"机房不存在""必填项为空"）
+    //   被完全吞掉，用户只看到"没导入成功"却不知道哪一行哪个字段错了。
+    //   后端统一响应体是 {code, msg, data}，优先取 msg（与 AI 助手页面同一套处理）。
+    ElMessage.error({
+      message: e?.msg || e?.message || '导入失败，请查看后端日志（docker logs dvadmin3-django）',
+      duration: 8000,
+      showClose: true,
+    })
   })
 
 }

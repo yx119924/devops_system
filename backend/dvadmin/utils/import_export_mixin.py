@@ -94,29 +94,50 @@ class ImportSerializerMixin:
                 _("No."),
             ]
             validation_data_dict = {}
-            for index, ele in enumerate(self.import_field_dict.values()):
+            # ★ 必填项从「导入序列化器」的字段 required 属性自动推断，
+            #   不再靠人工把 * 写进标题 —— 人工写的星号经常与真实校验规则不一致
+            #   （例如机房/环境/业务线模型上是 null=True，标了 * 会让人误以为必填）。
+            required_keys = set()
+            if self.import_serializer_class:
+                try:
+                    _ser = self.import_serializer_class()
+                    required_keys = {n for n, f in _ser.fields.items()
+                                     if getattr(f, "required", False)}
+                except Exception:
+                    required_keys = set()
+            notes = []  # (列名, 是否必填, 可选值/填写要求)
+            for index, (key, ele) in enumerate(self.import_field_dict.items()):
+                options = []
                 if isinstance(ele, dict):
-                    header_data.append(ele.get("title"))
+                    # ★ 先剥掉标题里可能已经手写的 *，避免出现 "主机名**"
+                    title = str(ele.get("title") or "").strip().rstrip("*").strip()
                     choices = ele.get("choices", {})
                     if choices.get("data"):
-                        data_list = []
-                        data_list.extend(choices.get("data").keys())
-                        validation_data_dict[ele.get("title")] = data_list
+                        # data 形如 {'online': '在线'} ⇒ 下拉值用 key，说明里写成 "online=在线"
+                        options = [f"{k}={v}" for k, v in choices.get("data").items()]
+                        validation_data_dict[title] = list(choices.get("data").keys())
                     elif choices.get("queryset") and choices.get("values_name"):
-                        data_list = choices.get("queryset").values_list(choices.get("values_name"), flat=True)
-                        validation_data_dict[ele.get("title")] = list(data_list)
+                        options = list(
+                            choices.get("queryset").values_list(choices.get("values_name"), flat=True)
+                        )
+                        validation_data_dict[title] = options
                     else:
+                        header_data.append(title + ("*" if key in required_keys else ""))
+                        notes.append((title, key in required_keys, ""))
                         continue
                     column_letter = get_column_letter(len(validation_data_dict))
                     dv = DataValidation(
                         type="list",
-                        formula1=f"{quote_sheetname('data')}!${column_letter}$2:${column_letter}${len(validation_data_dict[ele.get('title')]) + 1}",
+                        formula1=f"{quote_sheetname('data')}!${column_letter}$2:${column_letter}${len(validation_data_dict[title]) + 1}",
                         allow_blank=True,
                     )
                     ws.add_data_validation(dv)
                     dv.add(f"{get_column_letter(index + 2)}2:{get_column_letter(index + 2)}1048576")
                 else:
-                    header_data.append(ele)
+                    title = str(ele).strip().rstrip("*").strip()
+                    options = []
+                header_data.append(title + ("*" if key in required_keys else ""))
+                notes.append((title, key in required_keys, "、".join(str(o) for o in options)))
             # 添加数据列
             ws1.append(list(validation_data_dict.keys()))
             for index, validation_data in enumerate(validation_data_dict.values()):
@@ -138,6 +159,24 @@ class ImportSerializerMixin:
             )
             tab.tableStyleInfo = style
             ws.add_table(tab)
+            # ★ 追加一页「填写说明」：
+            #   ① 导入解析只读第一个 sheet（import_to_data 里 workbook[sheetnames[0]]），
+            #      所以加这一页**不会**影响导入；
+            #   ② 它解决的是「打开模板不知道哪些必填、枚举该填什么」这个问题。
+            notes_ws = wb.create_sheet(_("填写说明"), 2)
+            notes_ws.append([_("列名"), _("是否必填"), _("填写要求 / 可选值")])
+            for title, is_required, options in notes:
+                requirement = "必填，不能为空" if is_required else "可留空"
+                if options:
+                    requirement += "；可选值：" + options
+                notes_ws.append([title + ("*" if is_required else ""),
+                                 "是" if is_required else "否",
+                                 requirement])
+            notes_ws.append([])
+            notes_ws.append([_("说明"), "", "带 * 的列为必填；关联列（机房/环境/业务线）"
+                                               "必须填写「已存在」的名称，请先到对应管理页创建。"])
+            for _c, _w in zip("ABC", (22, 10, 80)):
+                notes_ws.column_dimensions[_c].width = _w
             wb.save(response)
             return response
         else:
