@@ -5,7 +5,7 @@
 
 ---
 
-## 未发布 —— 告警规则「双源共存」+ 下发回读校验 + CMDB 导入模板修复（2026-09-29 起）
+## 未发布 —— 告警规则「双源共存」+ 下发回读校验 + CMDB 导入修复（2026-09-29 起）
 
 ### 背景
 
@@ -31,6 +31,7 @@
 | 新增**增量更新手册** | `UPDATE.md`（+ `README.md` / `DEPLOY.md` 索引） | 把「环境已跑起来后怎么打一次更新」写成可照抄的 runbook：① 按「目标机能不能上网」分三条代码通道（`git pull` / 离线补丁包 / 配 SSH key）；② 目标机不能就地构建前端时的两种交付（重建镜像 `save`/`load`、应急只换 `dist` + bind mount）；③ 规则投递的 compose override 写法与「容器内写→宿主机看」验证法；④ Alertmanager 两个手工改动；⑤ 回归验收清单与回滚。附 8 个关键文件的 md5 供对账 |
 | `.gitignore` 补 `docker-compose.override.yml` | `.gitignore` | 该文件里写的是**本机才有的宿主路径**（如 Prometheus 规则目录），换个环境就不一样，不进版本控制 |
 | CMDB 导入模板标注必填 + 导入错误可见 | `backend/dvadmin/utils/import_export_mixin.py`、`web/src/components/importExcel/index.vue` | ① **模板**：必填列自动追加 `*`（真值取自导入序列化器的 `required`，不是手写清单 —— `blank=True`/带 `default=` 的不算必填），并新增一页「**填写说明**」逐列写明是否必填与可选值；表头加 `*` 不影响导入（`import_to_data` 按**列位置**取值，不读表头文字）。② **修「下载导入模板」报 500**：`gettext_lazy`（`_()`）返回的是**不是 `str` 实例**的懒代理，`openpyxl` 在 `create_sheet(title)` 与 `append(值)` 两处会直接抛 `TypeError`/`ValueError` ⇒ 后端 500。所有交给 openpyxl 的翻译结果显式 `str()` 包裹。③ **前端不再吞错**：`importExcel` 的 `.catch()` 原来为空、且 `el-upload` 没绑 `:on-error` ⇒ 后端校验错误（"机房不存在"/"必填项为空"）完全静默；现在两处都给出 `ElMessage.error` 并回显后端 `msg` |
+| 修「上传后导入报文件不存在」 | `backend/dvadmin/utils/import_export.py` | 上传落盘与回读解析是**两套路径口径**：上传走 `MEDIA_ROOT = "media"`（相对值）⇒ `FileSystemStorage.location = os.path.abspath(MEDIA_ROOT)` = `<进程 CWD>/media/…`；而回读原来写 `os.path.join(settings.BASE_DIR, file_url)`。只要 `BASE_DIR ≠ CWD`（或 `BASE_DIR` 被 `conf/env.py` 覆盖成相对值），就必然 `[Errno 2] No such file or directory: 'backend/media/files/…'`。现改为**与上传同一套口径**（`abspath(MEDIA_ROOT)` + FileField 相对名），并兼容 `backend/media/`、`media/` 前缀与绝对路径；候选全落空时在 `MEDIA_ROOT` 内按文件名兜底（命中打 WARNING）；仍找不到则抛**可读的中文提示**（带文件名、提示重新上传），不再把 `[Errno 2]` + 服务器绝对路径暴露给用户 |
 
 > ⚠️ `devops_rules.yml` 已从索引移除，但**它仍存在于 v1.0.0 的提交历史里**（公开仓库）。
 > 若要彻底清除，需重写历史后强推（与之前 amend + force-push 的做法一致），

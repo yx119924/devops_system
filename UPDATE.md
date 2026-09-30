@@ -9,10 +9,10 @@
 
 | 项 | 值 |
 |---|---|
-| 功能基线提交 | **`1d8db6b`** |
-| 内容 | 告警规则「双源共存(source/labels)」+ 下发回读校验；首页卡片跳转修正；运行时产物移出版本控制；<br>CMDB 导入模板标注必填项 + 前端不再吞掉导入错误；<br>修「下载导入模板」报 500（`gettext_lazy` 对象不能直接交给 openpyxl） |
-| 日期 | 2026-09-29 起（`1d8db6b` 是 09-30 的收尾修复，已并入本基线） |
-| 影响面 | 5 个后端文件（含 1 个**新迁移**）+ 5 个前端文件 ⇒ **前端必须重建镜像** |
+| 功能基线提交 | **`4b0a80e`** |
+| 内容 | 告警规则「双源共存(source/labels)」+ 下发回读校验；首页卡片跳转修正；运行时产物移出版本控制；<br>CMDB 导入模板标注必填项 + 前端不再吞掉导入错误；<br>修「下载导入模板」报 500（`gettext_lazy` 对象不能直接交给 openpyxl）；<br>修「上传后导入报文件不存在」（统一上传落盘与回读的路径口径） |
+| 日期 | 2026-09-29 起（`4b0a80e` 是 09-30 的收尾修复，已并入本基线） |
+| 影响面 | 6 个后端文件（含 1 个**新迁移**）+ 5 个前端文件 ⇒ **前端必须重建镜像** |
 
 > ★ **换一批改动也能用这份文档**。通用步骤（§1 / §3 / §4 / §6 / §7）长期有效；
 > 只有「本批专属」的部分需要替换 —— **怎么替换见 §2.2**。
@@ -148,11 +148,11 @@ git -C <部署目录> fetch origin && git -C <部署目录> diff --name-only HEA
 
 ## 2. 这次要更新什么
 
-### 2.1 本批文件清单（21 个文件 → 4 类动作）
+### 2.1 本批文件清单（22 个文件 → 4 类动作）
 
 | 类别 | 文件 | 需要的动作 |
 |---|---|---|
-| **后端源码** | `backend/dvadmin/alert/models.py`<br>`backend/dvadmin/alert/services.py`<br>`backend/dvadmin/alert/views/rule.py`<br>`backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py`<br>`backend/dvadmin/utils/import_export_mixin.py` | 拷进 `<部署目录>/backend/` → **跑迁移** → 重启 django + celery |
+| **后端源码** | `backend/dvadmin/alert/models.py`<br>`backend/dvadmin/alert/services.py`<br>`backend/dvadmin/alert/views/rule.py`<br>`backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py`<br>`backend/dvadmin/utils/import_export_mixin.py`<br>`backend/dvadmin/utils/import_export.py` | 拷进 `<部署目录>/backend/` → **跑迁移** → 重启 django + celery |
 | **前端源码** | `web/src/views/alert/rule/crud.tsx`<br>`web/src/views/alert/rule/index.vue`<br>`web/src/views/alert/manage/index.vue`<br>`web/src/views/system/home/index.vue`<br>`web/src/components/importExcel/index.vue` | **必须重建 web 镜像**（§3 第 4 步） |
 | **参考配置** | `docker_env/alertmanager/alertmanager.yml`<br>`backend/conf/env.example.py` | **不动线上**。前者是 AM 配置的**样例与注释说明**，线上 AM 请按 §3 第 6 步手工改 |
 | **工程杂项** | `.gitignore`、`README.md`、`DEPLOY.md`、`CHANGELOG.md`、`LOG-COLLECT.md`<br>`docs/images/log-collect/README.md`、`UPDATE.md`（**本文档**） | 无动作（`.gitignore` 只影响下次提交；文档类随仓库一起更新即可） |
@@ -191,7 +191,7 @@ git -C <仓库根目录> diff --name-status HEAD..origin/main | sort
 | §3 第 3 步 | 迁移名 `alert`、`0007_*` | 换成你这次的 app 名与迁移文件（`ls backend/dvadmin/*/migrations/`） |
 | §3 第 5 步 | 规则投递挂载 | 只有改了告警规则下发相关的代码才需要 |
 | §3 第 6 步 | Alertmanager `team` 标签 | 同上 |
-| §4.2 | 功能验收项 1~13 | 换成你这批改动的验收点 |
+| §4.2 | 功能验收项 1~14 | 换成你这批改动的验收点 |
 
 > ★ 判断"哪批改动算功能基线"的办法：**看哪个提交动了 `backend/` 或 `web/`**。
 > 之后的纯 `*.md` 提交不影响功能，不用管 —— 所以本文只认功能基线 hash，不认"最新提交"。
@@ -317,20 +317,21 @@ git apply /tmp/xwops_update/0001-*.patch
 
 ```bash
 # ① 功能基线提交到位了吗
-#   ★ 只认 1d8db6b 这一个 hash —— 别写成「最新提交」，
+#   ★ 只认 4b0a80e 这一个 hash —— 别写成「最新提交」，
 #     因为本批之后还会陆续有「纯文档提交」，那样写每提交一次文档就过期一次。
-git merge-base --is-ancestor 1d8db6b HEAD && echo "功能基线已到位"
-git log --oneline --grep="gettext_lazy" -1
-# 期望：1d8db6b fix(import): 修 500 —— gettext_lazy 对象不能直接交给 openpyxl
+git merge-base --is-ancestor 4b0a80e HEAD && echo "功能基线已到位"
+git log --oneline --grep="上传落盘" -1
+# 期望：4b0a80e fix(import): 统一「上传落盘」与「回读」的路径口径，修导入报文件不存在
 ```
 
 ```bash
-# ② 10 个关键文件的 md5（补丁漏拷/漏改会在这里暴露）
+# ② 11 个关键文件的 md5（补丁漏拷/漏改会在这里暴露）
 md5sum backend/dvadmin/alert/models.py \
        backend/dvadmin/alert/services.py \
        backend/dvadmin/alert/views/rule.py \
        backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py \
        backend/dvadmin/utils/import_export_mixin.py \
+       backend/dvadmin/utils/import_export.py \
        web/src/views/alert/rule/crud.tsx \
        web/src/views/alert/rule/index.vue \
        web/src/views/alert/manage/index.vue \
@@ -338,7 +339,7 @@ md5sum backend/dvadmin/alert/models.py \
        web/src/components/importExcel/index.vue
 ```
 
-期望输出（前 5 个是后端，后 5 个是前端）：
+期望输出（前 6 个是后端，后 5 个是前端）：
 
 ```
 758188633cc2c781ff0e68c5af8a884e  backend/dvadmin/alert/models.py
@@ -346,6 +347,7 @@ f769c01f6293c956dc5bce5a0b610b8d  backend/dvadmin/alert/services.py
 59c9b5b8e7a41b5978fcbd997073218f  backend/dvadmin/alert/views/rule.py
 7d2700f10b14e4c73bd6336a7a721ee3  backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py
 319c732636d2ec81dae218d4bb32e810  backend/dvadmin/utils/import_export_mixin.py
+83c0ec91599ae8b4fe80a466d2d32357  backend/dvadmin/utils/import_export.py
 1c7089c924379fd6a4ee8882fa1036ae  web/src/views/alert/rule/crud.tsx
 2cef6f29a1c2c014f5be7fcbcbb0e6ed  web/src/views/alert/rule/index.vue
 9c25c3010ac155b3904cbe0933f73308  web/src/views/alert/manage/index.vue
@@ -353,22 +355,23 @@ a0a417ea40b9f2030aa40306cd37d466  web/src/views/system/home/index.vue
 a995dd372a355e210abdc85068fa4eb3  web/src/components/importExcel/index.vue
 ```
 
-**应该看到**：10 行 md5 与上面完全一致。
+**应该看到**：11 行 md5 与上面完全一致。
 
 > ★ `md5sum` 默认输出是 `<md5>␠␠<文件>`（两个空格）；若你的输出带 `*` 前缀
 > （如 `758188…  *models.py`），那是 binary 模式标记，比对时忽略即可。
 >
-> ★ **上面这 10 个值都是「LF 行尾」下的值** —— 仓库 `.gitattributes` 已统一 `eol=lf`，目标机检出即 LF。
+> ★ **上面这 11 个值都是「LF 行尾」下的值** —— 仓库 `.gitattributes` 已统一 `eol=lf`，目标机检出即 LF。
 > 若你在 **Windows** 上核对、且恰好只有个别文件对不上，先查行尾：
 > `file <该文件>` —— 报 `CRLF` 就是历史遗留的行尾，`rm <该文件> && git checkout -- <该文件>`
 > 让它按 `.gitattributes` 重新检出即可，**别去改文档**。
 >
-> ★ **只认 `1d8db6b` 这一个 hash —— 所有影响运行时的改动都在它里面**（它的祖先包含 `2eeea68`、`5bfc62d`）。
+> ★ **只认 `4b0a80e` 这一个 hash —— 所有影响运行时的改动都在它里面**（它的祖先包含 `1d8db6b`、`2eeea68`、`5bfc62d`）。
 > 它之后可能还有若干个**纯文档提交**（如 `dc2ea2a`、`537a63b`），只动 `*.md` 与 `.gitignore`，
 > **不影响功能**。所以：
 > - `merge-base` 返回 0（该提交是 HEAD 的祖先）⇒ 功能代码已到位；
-> - 通道 B 打补丁时**要打到 `1d8db6b`** —— 只打到 `2eeea68` 会缺掉 09-30 的收尾修复
->   （下载导入模板报 500 的 `gettext_lazy` 修复），更早的 `5bfc62d` 则连「导入模板必填标注 + 前端导入错误提示」都缺；
+> - 通道 B 打补丁时**要打到 `4b0a80e`** —— 只打到 `1d8db6b` 会缺掉 09-30 的最后一处修复
+>   （导入报「文件不存在」的路径口径），只到 `2eeea68` 会再缺「下载导入模板 500」，
+>   更早的 `5bfc62d` 则连「导入模板必填标注 + 前端导入错误提示」都缺；
 > - **md5 对不上 ⇒ 代码没到位，别往下走。**
 
 ### 第 2 步 · 后端源码就位（`.py` 是挂载的，拷进去即生效）
@@ -384,16 +387,18 @@ cp -v <补丁包>/backend/dvadmin/alert/views/rule.py        backend/dvadmin/ale
 cp -v <补丁包>/backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py \
       backend/dvadmin/alert/migrations/
 cp -v <补丁包>/backend/dvadmin/utils/import_export_mixin.py  backend/dvadmin/utils/
+cp -v <补丁包>/backend/dvadmin/utils/import_export.py        backend/dvadmin/utils/
 
 python3 -m py_compile backend/dvadmin/alert/models.py \
                       backend/dvadmin/alert/services.py \
                       backend/dvadmin/alert/views/rule.py \
                       backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py \
                       backend/dvadmin/utils/import_export_mixin.py \
+                      backend/dvadmin/utils/import_export.py \
   && echo "语法 OK"
 ```
 
-**应该看到**：5 行 `cp` 记录 + 最后一行 `语法 OK`。
+**应该看到**：6 行 `cp` 记录 + 最后一行 `语法 OK`。
 
 > ★ 注意：这一步**只把文件放到位**，还没生效 —— 生效靠第 7 步重启容器。
 > 迁移（第 3 步）可以先跑，因为 `docker exec` 会新起一个 Python 进程，读到的是磁盘上的新代码。
@@ -719,6 +724,7 @@ curl -s -o /dev/null -w 'api=%{http_code}\n'  http://127.0.0.1:8080/api/api/
 | 11 | 平台新建规则 → 同步规则 → 回读 | `curl -s http://<内网IP>:9090/api/v1/rules \| grep '"name":"<你的规则名>"'` 有输出 |
 | 12 | CMDB 服务器管理 → **下载导入模板** | **直接弹出下载** `.xlsx`（★ 不再提示「导入任务已创建」）；表头带 `*` 的**只有「主机名」「主管理IP」**（机房/环境/业务线不再标 `*`）；多出一页 **「填写说明」**，逐列写明是否必填与可选值 |
 | 13 | 导入一个必填项为空的 xlsx | **弹窗报错**（不再"点了没反应"），且提示里带后端给出的原因 |
+| 14 | 把**填好的**模板（只填主机名 + 主管理IP，机房/环境/业务线**不填**）上传导入 | **提示导入成功**并刷新列表；★ 不再报 `[Errno 2] No such file or directory` |
 
 ### 4.3 链路层（可选，但强烈建议做一次）
 
@@ -760,7 +766,7 @@ Prometheus → Alertmanager → 平台 webhook(202) → Celery → 告警事件�
 | `migrate` 报 **No installed app with label 'xxx'** | app label 写错 | `ls backend/dvadmin/` 看真实目录名；`alert` 的 label 就是 `alert` |
 | `migrate` 之后页面**仍然报错缺字段** | 迁移没真的跑成功，或跑在了错的库上 | `docker exec dvadmin3-django python manage.py showmigrations alert` 看 `0007` 前是不是 `[X]` |
 | 登录后部分页面 **500** | 数据未初始化 / 超管部门引用悬空 / 全局中间件抛异常 | `docker logs dvadmin3-django` 看 traceback；新版 `redaction.py` 已修「未登录 POST 全站 500」这个 P0，确认你拿到的 md5 与 §3 第 1 步一致 |
-| §3 第 1 步的 10 个 md5 里**只有个别对不上** | ① 该文件被本地改过；② 该文件是 CRLF 行尾（在 Windows 上核对才会遇到）；③ 通道 B 漏拷 | 先 `file <该文件>` 看行尾；再 `git diff --stat <该文件>` 看是否被改过；都不是就按 §3 第 1 步重新取一次代码 |
+| §3 第 1 步的 11 个 md5 里**只有个别对不上** | ① 该文件被本地改过；② 该文件是 CRLF 行尾（在 Windows 上核对才会遇到）；③ 通道 B 漏拷 | 先 `file <该文件>` 看行尾；再 `git diff --stat <该文件>` 看是否被改过；都不是就按 §3 第 1 步重新取一次代码 |
 | `md5sum -c checksums.txt` 报 **FAILED** | 镜像包传输不完整，或 `checksums.txt` 不是这个包的 | 重新传输；★ 确认 tar 与 `checksums.txt` 是**同一批**生成的（§3 第 4 步 ②B） |
 | `docker load` 报 **no space left** | 磁盘不足 | 至少留 3 GB |
 | 「同步规则」**提示成功但 Prometheus 里没有** | 平台把规则文件写在自己容器里，**从不投递**到 Prometheus 主机 | 本批起该按钮会**回读**校验，这种情况会直接报错；仍要确保做了 §3 第 5 步 |
@@ -768,6 +774,7 @@ Prometheus → Alertmanager → 平台 webhook(202) → Celery → 告警事件�
 | 点完「同步规则」/ 在平台上动了一条规则后，下发文件**变成一个 47 字节的空文件** | 平台只导出数据库里 `source='platform'` 的规则；你的人工规则不在库里 ⇒ 导出结果为空（正好 47 字节：`groups: / - name: devops_alert_rules / rules: []`） | ★★ **先判断告警还灵不灵**：`curl -s http://127.0.0.1:9090/api/v1/rules \| grep -c '"name"'` —— **数量正常 ⇒ reload 没生效、内存里还在**；**接近 0 ⇒ 已经没了**。再按下一行恢复，然后做「子目录隔离」 |
 | 点完「同步规则」，`<Prom规则目录>/devops_rules.yml` 里的**人工规则被覆盖没了** | 平台**全量写**这个固定文件名；人工规则不在数据库里，就不会被写回 | ① 先 `cp -a <Prom规则目录> ~/prom_rules.bad_$(date +%F_%H%M)` 留档；② 在**能上外网的机器**上取回旧版（它存在于提交 `d9b20ec`）：<br>`git show d9b20ec:backend/dvadmin/alert/rules/devops_rules.yml > devops_rules.yml`<br>或 `curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/d9b20ec/backend/dvadmin/alert/rules/devops_rules.yml -o devops_rules.yml`<br>（应为 **18214 字节 / 50 条 / md5 `98ac24469fb0d5c9184fc06afbff04f7`**）；③ 拷回 `<Prom规则目录>/devops_rules.yml`；④ `curl -X POST http://127.0.0.1:9090/-/reload`；⑤ 改用「子目录隔离」（§3 第 5 步）防复发。<br>★ 该文件在**公开仓库的历史**里 ⇒ 内容对外可见，建议尽快清理历史 |
 | 点「下载导入模板」，提示**「导入任务已创建，请前往下载中心」**，但下载中心**没有任务**、模板**不下载** | 该按钮是**同步返回文件流**，不是异步任务。后端在生成 xlsx 时抛了 500（返回 JSON），而前端 `downloadFile()` 把**任何 JSON 响应**都当成「异步任务已创建」（`web/src/utils/service.ts`）⇒ 提示与事实相反 | **本批已修**（`1d8db6b`）。确认后端文件 md5 = §3 第 1 步那个 `import_export_mixin.py` 的值；`docker logs dvadmin3-django` 里若见到 `TypeError: expected string or bytes-like object` / `Cannot convert ... to Excel` ⇒ 就是这个（`gettext_lazy` 对象不能直接交给 openpyxl）。取到新代码 + 重启 django 即可 |
+| 上传填好的模板后报 **`[Errno 2] No such file or directory: 'backend/media/files/…'`** | **上传落盘**与**回读解析**是两套路径口径：上传走 `MEDIA_ROOT="media"`（相对值）⇒ 真实位置是 `<进程 CWD>/media/…`；回读原来写 `os.path.join(settings.BASE_DIR, file_url)`。只要 `BASE_DIR ≠ CWD`（或 `BASE_DIR` 被 `conf/env.py` 覆盖成相对值），必然找不到 | **本批已修**（`4b0a80e`）。确认 `import_export.py` 的 md5 = §3 第 1 步的 `83c0ec91…`；取到新代码 + **重启 django** 即可。★ 若修完仍报同样的错，说明**文件真的不在磁盘上**（容器重建/清理过），**重新上传一次**即可；此时日志（`docker logs dvadmin3-django`）会打印**已尝试的候选路径**，按它就能看出实际落盘目录 |
 
 **深挖用的三条命令**（卡住时先跑这个，比猜快）：
 
@@ -781,7 +788,7 @@ docker logs --tail 100 dvadmin3-celery                      # 异步任务报什
 
 ## 7. 回滚
 
-**后端**（最快）：把 §3 第 2 步拷进去的 5 个文件换回旧版，然后重启后端容器（§3 第 7 步）。
+**后端**（最快）：把 §3 第 2 步拷进去的 6 个文件换回旧版，然后重启后端容器（§3 第 7 步）。
 
 **前端**：换回旧镜像（`docker load` 上一版 tar）或删掉 §8.3 那行挂载，然后 `up -d --no-build dvadmin3-web`。
 
@@ -957,9 +964,9 @@ git -C <部署目录> merge-base HEAD origin/main
   报冲突说明目标机上的文件与补丁的基线不一致 —— 这时**别硬套**。
 - **冲突的正式处理是 `git apply --reject`**：在失败处生成 `.rej` 文件，
   然后按 §3 第 2 步**逐文件手工拷**。手工拷反而更可控。
-- **补丁包为什么不直接打包整目录**：本批 21 个文件里有 1 个是**删除跟踪**
+- **补丁包为什么不直接打包整目录**：本批 22 个文件里有 1 个是**删除跟踪**
   （`devops_rules.yml`）、5 个是**新增**（`0007_*.py`、`rules/.gitkeep`、`LOG-COLLECT.md`、
-  `UPDATE.md`、`docs/images/log-collect/README.md`），其余 15 个是**修改**。补丁能精确表达
+  `UPDATE.md`、`docs/images/log-collect/README.md`），其余 16 个是**修改**。补丁能精确表达
   "删/增/改"三类动作，而整目录覆盖既表达不了"删除"，还会把目标机的本地改动一起抹掉。
 
 ### 9.4 通道 C · 一劳永逸：给目标机配一条能用的拉取通道
@@ -993,7 +1000,7 @@ curl -fsSL https://cdn.jsdelivr.net/gh/yx119924/devops_system@main/<文件相对
 | **目标机** | 要更新的那台机器（跑着那 5 个容器） |
 | **外网机** | 一台能上外网、装了 docker 的机器，用于构建前端镜像 |
 | **通道 A/B/C** | 把代码送进目标机的三种方式（§9） |
-| **功能基线** | 本批里唯一影响运行时的那个提交（本批是 `1d8db6b`） |
+| **功能基线** | 本批里唯一影响运行时的那个提交（本批是 `4b0a80e`） |
 | **override 文件** | `docker-compose.override.yml`，本机专用、已 gitignore，用来追加挂载 |
 | **运行时产物** | 程序自己写出来的文件（生成的规则 yml、数据目录、日志、缓存）—— **不该进版本控制** |
 
