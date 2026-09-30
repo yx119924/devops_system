@@ -72,12 +72,78 @@ ls -l backup_*.sql          # 确认文件非 0 字节
 
 ### 第 1 步 · 取代码
 
-见 §3 通道 A / B / C。**取完先核对版本**：
+按 §0 的探测结果**选一条**，命令直接贴下面。
+
+**【通道 A】目标机能直连 GitHub**
 
 ```bash
-git -C <部署目录> log --oneline -1
-# 本批期望：5bfc62d feat(alert): 规则双源共存(source/labels) + 下发回读校验；修首页卡片跳转；…
+cd <部署目录>
+git status --short                      # 先看有没有本地改动；有就先 git stash
+git pull --ff-only origin main
 ```
+
+**【通道 B】目标机不能上网（离线补丁包）★ 你多半是这条**
+
+```bash
+# ── ① 在一台能访问 GitHub 的机器上打补丁包 ──
+git clone --depth 1 https://github.com/yx119924/devops_system.git /tmp/xwops_src
+cd /tmp/xwops_src && git format-patch -1 HEAD -o /tmp/xwops_patch
+tar czf xwops_update_20260929.tar.gz -C /tmp/xwops_patch .
+# 把 xwops_update_20260929.tar.gz 拷到目标机（scp / U 盘 / 跳板机都行）
+```
+
+```bash
+# ── ② 在目标机上应用 ──
+cd <部署目录>
+tar xzf /tmp/xwops_update_20260929.tar.gz -C /tmp/xwops_update/
+git apply --check /tmp/xwops_update/0001-*.patch && echo "可以干净应用"   # 先干跑
+git diff > /tmp/xwops_before_backup.patch        # 应用前留一份现状，便于回退
+git apply /tmp/xwops_update/0001-*.patch
+```
+
+**【通道 C】配一条能用的拉取通道** —— 命令见 §3.4（SSH over 443 / 代理 / jsDelivr 单文件）。
+
+**取完必须核对，两项都对上才能进第 2 步**
+
+```bash
+# ① 提交到位了吗
+git log --oneline -2
+# 期望（本批两个提交，最新一版在上）：
+#   dc2ea2a docs: 新增增量更新手册 UPDATE.md（含内网离线通道/前端产物进内网/回滚）
+#   5bfc62d feat(alert): 规则双源共存(source/labels) + 下发回读校验；修首页卡片跳转；…
+```
+
+```bash
+# ② 8 个关键文件的 md5（补丁漏拷/漏改会在这里暴露）
+md5sum backend/dvadmin/alert/models.py \
+       backend/dvadmin/alert/services.py \
+       backend/dvadmin/alert/views/rule.py \
+       backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py \
+       web/src/views/alert/rule/crud.tsx \
+       web/src/views/alert/rule/index.vue \
+       web/src/views/alert/manage/index.vue \
+       web/src/views/system/home/index.vue
+```
+
+期望输出（前 4 个是后端，后 4 个是前端）：
+
+```
+758188633cc2c781ff0e68c5af8a884e  backend/dvadmin/alert/models.py
+f769c01f6293c956dc5bce5a0b610b8d  backend/dvadmin/alert/services.py
+59c9b5b8e7a41b5978fcbd997073218f  backend/dvadmin/alert/views/rule.py
+7d2700f10b14e4c73bd6336a7a721ee3  backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py
+415363a6a5421d657ab2b1c32614dd75  web/src/views/alert/rule/crud.tsx
+2cef6f29a1c2c014f5be7fcbcbb0e6ed  web/src/views/alert/rule/index.vue
+9c25c3010ac155b3904cbe0933f73308  web/src/views/alert/manage/index.vue
+a0a417ea40b9f2030aa40306cd37d466  web/src/views/system/home/index.vue
+```
+
+> ★ `md5sum` 默认输出是 `<md5>␠␠<文件>`（两个空格）；若你的输出带 `*` 前缀
+> （如 `758188…  *models.py`），那是 binary 模式标记，比对时忽略即可。
+>
+> ★ **`dc2ea2a` 只含文档与 `.gitignore`，不影响功能**；功能改动全在 `5bfc62d`。
+> 所以通道 B 就算只应用了到 `5bfc62d` 的那个补丁、md5 全对，**功能也是完整的**
+> —— 差的只是这份手册本身。反过来，md5 对不上就说明代码没到位，别往下走。
 
 ### 第 2 步 · 后端源码就位（`.py` 是挂载的，拷进去即生效）
 
@@ -223,78 +289,45 @@ curl -s -X POST http://<内网IP>:9093/-/reload -o /dev/null -w 'HTTP=%{http_cod
 
 ---
 
-## 3. 通道详解：代码怎么进目标机
+## 3. 通道详解：什么时候用哪条、要注意什么
 
-### 通道 A · 目标机能直连 GitHub（最省事）
+> ★ 三条通道的**命令**分别在 **§2 第 1 步**（通道 A / B）与 **§3.4**（通道 C）。
+> 本节不重复命令，只讲**判断依据**和**坑** —— 同一个命令写在两处必然漂移。
 
-```bash
-cd <部署目录>
-git fetch origin && git status          # 先看有没有本地改动没提交，有就先 stash
-git pull --ff-only origin main
-```
+### 3.1 怎么判断走哪条
 
-### 通道 B · 目标机不能上网（离线包）★ 最常见
+用 **§0 第 ① 条**那条探测命令，照下表读结果：
 
-目标机连不上 `github.com:443`（报 `GnuTLS recv error (-110)` 之类）时用这条。
-本批改动总共 **15 个文件**（1 个新增迁移、1 个新增 `.gitkeep`、1 个删除跟踪），用补丁包最小：
+| 输出 | 结论 | 走 |
+|---|---|---|
+| 打出 40 位哈希 | 能直连 | **通道 A** |
+| `GnuTLS recv error (-110)` / `TLS connection was non-properly terminated` | HTTPS 被干扰 | **通道 B**（或 C） |
+| `Could not resolve host` / `timed out` | 根本没有外网 | **通道 B** |
+| `Host key verification failed` | remote 走 SSH 但没配 key | **通道 B**（或 C-1） |
 
-```bash
-# —— 在一台能访问 GitHub 的机器上 ——
-git clone --depth 1 https://github.com/yx119924/devops_system.git
-cd devops_system
-git format-patch -1 HEAD -o ../patch/           # 产出 0001-*.patch
-tar czf xwops_update_20260929.tar.gz -C ../patch .
-```
+> ★ **`TLS connection was non-properly terminated` 与「这台机器能通外网」并不矛盾** ——
+> 它可能能访问 npm / pip 源，只是 `github.com:443` 被干扰。实测就是这个情况。
+> 所以**别用「能 ping 通外网」推断「能 git pull」**，这两件事要分开探。
 
-把 `xwops_update_20260929.tar.gz` 拷到目标机（scp / U 盘 / 跳板机都行），然后：
+### 3.2 通道 A 的两个注意点
 
-```bash
-cd <部署目录>
-tar xzf /tmp/xwops_update_20260929.tar.gz -C /tmp/xwops_update/
+- `git status --short` 有输出 ⇒ 目标机上有本地改动（`conf/env.py` 不算，它已 gitignore）。
+  **先 `git stash`**，否则 `--ff-only` 会直接拒绝，报 `local changes would be overwritten`。
+- `git pull --ff-only` 报 `Not possible to fast-forward` ⇒ 目标机上有**本地提交**，
+  说明有人在上面直接改过代码。**别顺手 `git pull --rebase`** ——
+  先 `git log --oneline origin/main..HEAD` 看清本地多了哪些提交，再决定合并还是丢弃。
 
-# ★ 先干跑一次，看它到底会改哪些文件（不改工作区）
-git apply --check /tmp/xwops_update/0001-*.patch && echo "可以干净应用"
+### 3.3 通道 B 的三个注意点
 
-# ★ 应用前先备份当前工作区差异（万一要回退）
-git diff > /tmp/xwops_before_backup.patch
+- **`git apply --check` 必须先跑**：它不改工作区，只回答「能不能干净应用」。
+  报冲突说明目标机上的文件与补丁的基线不一致 —— 这时**别硬套**。
+- **冲突的正式处理是 `git apply --reject`**：在失败处生成 `.rej` 文件，
+  然后按 §2 第 2 步**逐文件手工拷**。手工拷反而更可控。
+- **补丁包为什么不直接打包整目录**：本批 15 个文件里有 1 个是**删除跟踪**
+  （`devops_rules.yml`）、1 个是**新增**（`0007_*.py`）。补丁能精确表达"删/增/改"三类动作，
+  而整目录覆盖既表达不了"删除"，还会把目标机的本地改动一起抹掉。
 
-git apply /tmp/xwops_update/0001-*.patch
-git status --short          # 应看到 15 个文件发生变化
-```
-
-**核对改对了** —— 本批 8 个关键文件的 md5，对不上就是没拷全：
-
-```bash
-md5sum backend/dvadmin/alert/models.py \
-       backend/dvadmin/alert/services.py \
-       backend/dvadmin/alert/views/rule.py \
-       backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py \
-       web/src/views/alert/rule/crud.tsx \
-       web/src/views/alert/rule/index.vue \
-       web/src/views/alert/manage/index.vue \
-       web/src/views/system/home/index.vue
-```
-
-期望输出（前 4 个是后端，后 4 个是前端）：
-
-```
-758188633cc2c781ff0e68c5af8a884e  backend/dvadmin/alert/models.py
-f769c01f6293c956dc5bce5a0b610b8d  backend/dvadmin/alert/services.py
-59c9b5b8e7a41b5978fcbd997073218f  backend/dvadmin/alert/views/rule.py
-7d2700f10b14e4c73bd6336a7a721ee3  backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py
-415363a6a5421d657ab2b1c32614dd75  web/src/views/alert/rule/crud.tsx
-2cef6f29a1c2c014f5be7fcbcbb0e6ed  web/src/views/alert/rule/index.vue
-9c25c3010ac155b3904cbe0933f73308  web/src/views/alert/manage/index.vue
-a0a417ea40b9f2030aa40306cd37d466  web/src/views/system/home/index.vue
-```
-
-> ★ `md5sum` 默认输出是 `<md5>␠␠<文件>`（两个空格），上面按这个格式列的；
-> 若你的 `md5sum` 输出带 `*` 前缀（如 `758188…  *models.py`），是 binary 模式标记，比对时忽略即可。
-
-> ★ 若 `git apply` 报冲突（目标机上有本地改动），用 `git apply --reject` 看 `.rej` 文件，
-> 按 §2 第 2 步逐文件手工拷，手工拷反而更可控。
-
-### 通道 C · 一劳永逸：给目标机配一条能用的拉取通道
+### 3.4 通道 C · 一劳永逸：给目标机配一条能用的拉取通道
 
 三选一（从简单到复杂）：
 
@@ -310,6 +343,9 @@ git config --global http.proxy http://<代理>:<端口>
 # C-3 只取单文件（仓库是 public，走 CDN）
 curl -fsSL https://cdn.jsdelivr.net/gh/yx119924/devops_system@main/<文件相对路径> -o <目标路径>
 ```
+
+> ★ C-3 只适合**零星补几个文件**，不适合整批更新 —— 它不表达"删除"，也容易漏文件。
+> 本批要走 C-3 的话，得把 §2 第 1 步 `md5sum` 那 8 个文件全拉一遍再逐个核对 md5。
 
 ---
 
