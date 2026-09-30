@@ -80,6 +80,7 @@
 ├── docker-compose.yml           # 5 个服务的编排
 ├── DEPLOY.md                    # ★ 从零部署手册（首次部署看这份）
 ├── UPDATE.md                    # ★ 增量更新手册（已上线环境打更新看这份）
+├── LOG-COLLECT.md               # ★ 日志采集手册（目标机装 filebeat + 平台配任务 + 排查）
 ├── DEPLOY-ARCHITECTURE.md       # 部署架构说明
 ├── PRODUCT-ARCHITECTURE.md      # 产品架构说明
 ├── .env.example                 # compose 变量模板
@@ -161,6 +162,7 @@ docker exec dvadmin3-django python manage.py security_preflight
 |---|---|
 | [`DEPLOY.md`](DEPLOY.md) | **从零部署手册** —— 装 Docker 到验证通过，逐步命令 |
 | [`UPDATE.md`](UPDATE.md) | **增量更新手册** —— 环境已跑起来后打一次代码更新（含内网离线通道、前端产物进内网、回滚） |
+| [`LOG-COLLECT.md`](LOG-COLLECT.md) | **日志采集手册** —— 从目标机安装 filebeat、配 `output`、平台建任务下发，到验证日志真的落进 ES；含 11 条故障总表与平台已知缺陷 |
 | [`DEPLOY-ARCHITECTURE.md`](DEPLOY-ARCHITECTURE.md) | 部署架构：容器拓扑、网络、端口、数据落盘、备份与恢复 |
 | [`PRODUCT-ARCHITECTURE.md`](PRODUCT-ARCHITECTURE.md) | 产品架构：模块划分、权限模型、关键设计取舍 |
 | [`docker/README.md`](docker/README.md) | 镜像清单、下载与加载方式 |
