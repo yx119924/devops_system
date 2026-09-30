@@ -82,6 +82,9 @@ git status --short                      # 先看有没有本地改动；有就�
 git pull --ff-only origin main
 ```
 
+> ⚠️ 报 `fatal: Not possible to fast-forward` ⇒ **先按 §3.2 那条命令分辨原因，
+> 不要照 git 提示做 merge / rebase** —— 远端被强推过时，那样会把已有修复**退回去**。
+
 **【通道 B】目标机不能上网（离线补丁包）★ 你多半是这条**
 
 ```bash
@@ -313,13 +316,47 @@ curl -s -X POST http://<内网IP>:9093/-/reload -o /dev/null -w 'HTTP=%{http_cod
 > 它可能能访问 npm / pip 源，只是 `github.com:443` 被干扰。实测就是这个情况。
 > 所以**别用「能 ping 通外网」推断「能 git pull」**，这两件事要分开探。
 
-### 3.2 通道 A 的两个注意点
+### 3.2 通道 A：`Not possible to fast-forward` 的**两种**原因（处置相反）
 
-- `git status --short` 有输出 ⇒ 目标机上有本地改动（`conf/env.py` 不算，它已 gitignore）。
-  **先 `git stash`**，否则 `--ff-only` 会直接拒绝，报 `local changes would be overwritten`。
-- `git pull --ff-only` 报 `Not possible to fast-forward` ⇒ 目标机上有**本地提交**，
-  说明有人在上面直接改过代码。**别顺手 `git pull --rebase`** ——
-  先 `git log --oneline origin/main..HEAD` 看清本地多了哪些提交，再决定合并还是丢弃。
+`git status --short` 有输出 ⇒ 目标机上有本地改动（`conf/env.py`、`.env`、
+`docker-compose.override.yml` 都不算，它们已 gitignore）。**先 `git stash push -u`**。
+
+然后是本节重点。看到这条报错**别急着照 git 的提示做**，先跑**一条命令分辨**：
+
+```bash
+git -C <部署目录> merge-base HEAD origin/main
+```
+
+| 输出 | 病因 | 旁证 | 正确处置 |
+|---|---|---|---|
+| **没有任何输出** | ★★ **远端历史被重写**（有人 `amend` / 强推）⇒ 本地指向一个**远端已不存在**的提交，两边**没有共同祖先** | fetch 输出里那行以 `+` 开头、结尾带 **`(forced update)`** | **`git reset --hard origin/main`**（先 stash） |
+| 打出一个 hash | **常规分叉**：本地有自己的提交 | `git log --oneline origin/main..HEAD` 有输出 | 逐个 `git show` 看清，再决定 `cherry-pick` 还是丢弃 |
+
+> ⚠️ **实测案例（2026-09-30，本文档诞生后第一次真机拉取）**：
+> 目标机报 `+ 63773f1..8738310  main -> origin/main  (forced update)` + `fatal: Not possible to fast-forward`。
+> 核查发现：`63773f1` 与 `d9b20ec` **都是根提交（父提交数 0）**，
+> `merge-base` **无输出** —— 因为 v1.0.0 那次发布被 `amend` 过，`63773f1` 是修订前版本，
+> 已被强推丢弃（本机可用 `git fsck --lost-found` 看到它是 `dangling commit`）。
+> 结论：**这不是"有人改过目标机的代码"，纯粹是远端换了历史。**
+
+> ★★ **为什么绝不能照 git 提示的 `git merge --no-ff` / `git rebase` 做** ——
+> 本例里本地那个提交是**根提交**（`git rev-list --count HEAD` = 1），它背着**整棵树**
+> （919 个文件），而那是 **09-28 的旧版**。`rebase` 会把它**重放**到新历史之上
+> ⇒ `redaction.py` 的 P0 修复、告警双源改造、本次全部文档改动**一起被退回**；
+> `merge` 同理会把旧的整棵树合进来。
+> **git 给的只是基于「确实分叉了」的通用建议 —— 它不知道远端被人重写过。**
+> 这正是本条必须单独写出来的原因。
+
+> ★ `reset --hard` 会顺手**删掉** `backend/dvadmin/alert/rules/devops_rules.yml`：
+> 旧历史里它被跟踪，新历史里已移出版本控制。它是 `generate_rules()` 的**运行时产物**、
+> 一按「同步规则」就重新生成 ⇒ 删掉无害；想留个底就先 `cp` 一份再 reset。
+
+**对齐后**，回到 **§2 第 1 步的核对①**确认已到功能基线 —— 命令在那里，这里不重复。
+
+> ★ 顺带说一句：**`--ff-only` 拒绝你，是它在保护你。**
+> 若这里用的是裸 `git pull`（默认 merge），Git 会因"无共同祖先"而拒绝并要求加
+> `--allow-unrelated-histories`；**一旦有人照加了那个参数**，就会造出一个把
+> 09-28 旧树合进来的 merge commit，而且**不报错**。`--ff-only` 把这条路彻底堵死。
 
 ### 3.3 通道 B 的三个注意点
 
