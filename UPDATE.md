@@ -336,7 +336,7 @@ md5sum backend/dvadmin/alert/models.py \
 f769c01f6293c956dc5bce5a0b610b8d  backend/dvadmin/alert/services.py
 59c9b5b8e7a41b5978fcbd997073218f  backend/dvadmin/alert/views/rule.py
 7d2700f10b14e4c73bd6336a7a721ee3  backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py
-415363a6a5421d657ab2b1c32614dd75  web/src/views/alert/rule/crud.tsx
+1c7089c924379fd6a4ee8882fa1036ae  web/src/views/alert/rule/crud.tsx
 2cef6f29a1c2c014f5be7fcbcbb0e6ed  web/src/views/alert/rule/index.vue
 9c25c3010ac155b3904cbe0933f73308  web/src/views/alert/manage/index.vue
 a0a417ea40b9f2030aa40306cd37d466  web/src/views/system/home/index.vue
@@ -346,6 +346,11 @@ a0a417ea40b9f2030aa40306cd37d466  web/src/views/system/home/index.vue
 
 > ★ `md5sum` 默认输出是 `<md5>␠␠<文件>`（两个空格）；若你的输出带 `*` 前缀
 > （如 `758188…  *models.py`），那是 binary 模式标记，比对时忽略即可。
+>
+> ★ **上面这 8 个值都是「LF 行尾」下的值** —— 仓库 `.gitattributes` 已统一 `eol=lf`，目标机检出即 LF。
+> 若你在 **Windows** 上核对、且恰好只有个别文件对不上，先查行尾：
+> `file <该文件>` —— 报 `CRLF` 就是历史遗留的行尾，`rm <该文件> && git checkout -- <该文件>`
+> 让它按 `.gitattributes` 重新检出即可，**别去改文档**。
 >
 > ★ **只认 `5bfc62d` 这一个 hash —— 所有影响运行时的改动都在它里面。**
 > 它之后可能还有若干个**纯文档提交**（如 `dc2ea2a`、`537a63b`），只动 `*.md` 与 `.gitignore`，
@@ -692,6 +697,7 @@ Prometheus → Alertmanager → 平台 webhook(202) → Celery → 告警事件�
 | `migrate` 报 **No installed app with label 'xxx'** | app label 写错 | `ls backend/dvadmin/` 看真实目录名；`alert` 的 label 就是 `alert` |
 | `migrate` 之后页面**仍然报错缺字段** | 迁移没真的跑成功，或跑在了错的库上 | `docker exec dvadmin3-django python manage.py showmigrations alert` 看 `0007` 前是不是 `[X]` |
 | 登录后部分页面 **500** | 数据未初始化 / 超管部门引用悬空 / 全局中间件抛异常 | `docker logs dvadmin3-django` 看 traceback；新版 `redaction.py` 已修「未登录 POST 全站 500」这个 P0，确认你拿到的 md5 与 §3 第 1 步一致 |
+| §3 第 1 步的 8 个 md5 里**只有个别对不上** | ① 该文件被本地改过；② 该文件是 CRLF 行尾（在 Windows 上核对才会遇到）；③ 通道 B 漏拷 | 先 `file <该文件>` 看行尾；再 `git diff --stat <该文件>` 看是否被改过；都不是就按 §3 第 1 步重新取一次代码 |
 | `md5sum -c checksums.txt` 报 **FAILED** | 镜像包传输不完整，或 `checksums.txt` 不是这个包的 | 重新传输；★ 确认 tar 与 `checksums.txt` 是**同一批**生成的（§3 第 4 步 ②B） |
 | `docker load` 报 **no space left** | 磁盘不足 | 至少留 3 GB |
 | 「同步规则」**提示成功但 Prometheus 里没有** | 平台把规则文件写在自己容器里，**从不投递**到 Prometheus 主机 | 本批起该按钮会**回读**校验，这种情况会直接报错；仍要确保做了 §3 第 5 步 |
