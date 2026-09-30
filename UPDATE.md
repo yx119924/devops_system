@@ -26,8 +26,9 @@ git -C <部署目录> ls-remote origin HEAD        # 通 → 通道 A；报 GnuT
 # ② 有没有一台「能上外网 + 装了 docker」的机器？（构建前端镜像用）
 docker version                                   # 该机执行
 
-# ③ 本批有没有改 web/ ？
-git -C <部署目录> diff --name-only <旧提交> <新提交> -- web/
+# ③ 本批有没有改 web/ ？（决定前端要不要重建；先 fetch 再比，不需要先知道新提交号）
+git -C <部署目录> fetch origin && git -C <部署目录> diff --name-only HEAD origin/main -- web/
+#   有输出 ⇒ 前端必须重建（§4）；无输出 ⇒ 前端不用动
 ```
 
 决策表：
@@ -76,16 +77,63 @@ ls -l backup_*.sql          # 确认文件非 0 字节
 
 **【通道 A】目标机能直连 GitHub**
 
+先用一条命令分清是哪种情况：
+
 ```bash
 cd <部署目录>
-git status --short                      # 先看有没有本地改动；有就先 git stash
+git status --short                      # 空 = 本地干净；有输出 = 有本地改动
+```
+
+**情况 1 · 本地干净** ⇒ 直接前进：
+
+```bash
 git pull --ff-only origin main
 ```
 
-> ⚠️ 报 `fatal: Not possible to fast-forward` ⇒ **先按 §3.2 那条命令分辨原因，
+**情况 2 · 本地有改动，但你确认都不要了**（内网最常见：现场调过的参数、手改过的文件）
+⇒ 丢弃本地改动、对齐远端：
+
+```bash
+cd <部署目录>
+
+# ① 先看清改了什么（★ 被跟踪的文件才会丢；gitignore 的不会 —— 对照下方表）
+git diff --stat
+
+# ② 保险动作，一行，成本极低：把本地改动导出成 patch，万一有意外还能捞回来
+git diff > /tmp/xwops_local_$(date +%F_%H%M).patch
+
+# ③ 取回远端最新，然后丢弃本地改动、对齐远端（★ 不是 merge，也不是 rebase）
+git fetch origin
+git reset --hard origin/main
+```
+
+> 想知道**为什么会分叉**（普通分叉 / 远端历史被重写），§3.2 有一条分辨命令。
+
+> ⚠️ 只看 `git pull` 的报错还不够：报 `fatal: Not possible to fast-forward` ⇒ **先按 §3.2 那条命令分辨原因，
 > 不要照 git 提示做 merge / rebase** —— 远端被强推过时，那样会把已有修复**退回去**。
 
-**【通道 B】目标机不能上网（离线补丁包）★ 你多半是这条**
+**`reset --hard` 对三类文件的差别** —— 「内网改过的文件不用管」到底指什么：
+
+| 你改过的文件 | reset 之后 |
+|---|---|
+| **被 gitignore 的**：`backend/conf/env.py`、`.env`、`docker_env/*/data/`（**数据库在这儿**）、`backend/media/`、`logs/`、`docker-compose.override.yml` | **原样保留，一个字都不动** |
+| 被跟踪、**且本批也改了**（见 §1 清单） | 变成**官方新版** ← 这正是你想要的 |
+| 被跟踪、**但本批没动** | **退回 09-28 的原始内容** ⇒ 你的改动被丢弃 ← **只有这一类会真的丢** |
+
+> ★ 另有一个**会被删掉**的文件：`backend/dvadmin/alert/rules/devops_rules.yml` ——
+> 旧历史里它被跟踪、新历史里已移出版本控制。它是 `generate_rules()` 的**运行时产物**，
+> 一按「同步规则」就重新生成 ⇒ 删掉无害；想留个底就先 `cp` 一份再 reset。
+
+> ⚠️ **这三个是现场最可能被改过、丢了会疼的被跟踪文件**，reset 前扫一眼
+> `git diff --stat` 里有没有它们：`docker-compose.yml`（静态 IP / 端口 / 挂载）、
+> `docker_env/nginx/my.conf`（`proxy_pass` 的容器 IP —— **改错会整站 502**）、
+> `init/01_seed_config.sql`。
+
+> 🚫 **高危，千万别做**：`git clean -xfd`（或任何带 **`-x`** 的 clean）会把
+> **gitignore 的文件一起删掉** ⇒ `conf/env.py`、`.env`、**数据库目录**全没。
+> 未跟踪文件本来就不会被 `reset --hard` 影响，**完全不需要 clean**。
+
+**【通道 B】目标机不能上网（离线补丁包）** —— 用 §0 第 ① 条探测确认走不通时才是这条
 
 ```bash
 # ── ① 在一台能访问 GitHub 的机器上打补丁包 ──
@@ -103,6 +151,10 @@ git apply --check /tmp/xwops_update/0001-*.patch && echo "可以干净应用"   
 git diff > /tmp/xwops_before_backup.patch        # 应用前留一份现状，便于回退
 git apply /tmp/xwops_update/0001-*.patch
 ```
+
+> ★ **本地改动不要了、而 `--check` 报冲突**时：`git checkout -- .` 只丢弃**被跟踪文件**的
+> 改动（gitignore 的一律不碰），清干净再重新 `git apply`。
+> 注意它和 `reset --hard` 的差别：`checkout -- .` **只回退被跟踪文件的内容**、不动 HEAD。
 
 **【通道 C】配一条能用的拉取通道** —— 命令见 §3.4（SSH over 443 / 代理 / jsDelivr 单文件）。
 
@@ -316,10 +368,19 @@ curl -s -X POST http://<内网IP>:9093/-/reload -o /dev/null -w 'HTTP=%{http_cod
 > 它可能能访问 npm / pip 源，只是 `github.com:443` 被干扰。实测就是这个情况。
 > 所以**别用「能 ping 通外网」推断「能 git pull」**，这两件事要分开探。
 
+> ★★ **可达性会变，必须以实测为准，别照搬昨天的结论**：
+> 09-29 该机 `git fetch` 报 `GnuTLS recv error (-110)`（HTTPS 被干扰）；
+> **09-30 实测已能正常 fetch** —— 输出里能看到 `remote: Enumerating objects…`、
+> `Unpacking objects: 100%` ⇒ 该机现在走**通道 A**。
+> 同一条链路昨天不通、今天通是常事，所以本节只给**判断方法**，不给结论。
+
 ### 3.2 通道 A：`Not possible to fast-forward` 的**两种**原因（处置相反）
 
 `git status --short` 有输出 ⇒ 目标机上有本地改动（`conf/env.py`、`.env`、
-`docker-compose.override.yml` 都不算，它们已 gitignore）。**先 `git stash push -u`**。
+`docker-compose.override.yml` 都不算，它们已 gitignore）。**先决定要不要**：
+
+- **都不要了**（内网常见）⇒ 按 **§2 第 1 步「情况 2」**走（导 patch 留底 → `reset --hard`）；
+- **想留着** ⇒ 先 `git stash push -u`，对齐后再 `git stash pop` 挑着看。
 
 然后是本节重点。看到这条报错**别急着照 git 的提示做**，先跑**一条命令分辨**：
 
@@ -329,7 +390,7 @@ git -C <部署目录> merge-base HEAD origin/main
 
 | 输出 | 病因 | 旁证 | 正确处置 |
 |---|---|---|---|
-| **没有任何输出** | ★★ **远端历史被重写**（有人 `amend` / 强推）⇒ 本地指向一个**远端已不存在**的提交，两边**没有共同祖先** | fetch 输出里那行以 `+` 开头、结尾带 **`(forced update)`** | **`git reset --hard origin/main`**（先 stash） |
+| **没有任何输出** | ★★ **远端历史被重写**（有人 `amend` / 强推）⇒ 本地指向一个**远端已不存在**的提交，两边**没有共同祖先** | fetch 输出里那行以 `+` 开头、结尾带 **`(forced update)`** | 按 **§2 第 1 步「情况 2」**对齐远端 —— **不是 merge / rebase** |
 | 打出一个 hash | **常规分叉**：本地有自己的提交 | `git log --oneline origin/main..HEAD` 有输出 | 逐个 `git show` 看清，再决定 `cherry-pick` 还是丢弃 |
 
 > ⚠️ **实测案例（2026-09-30，本文档诞生后第一次真机拉取）**：
@@ -346,10 +407,6 @@ git -C <部署目录> merge-base HEAD origin/main
 > `merge` 同理会把旧的整棵树合进来。
 > **git 给的只是基于「确实分叉了」的通用建议 —— 它不知道远端被人重写过。**
 > 这正是本条必须单独写出来的原因。
-
-> ★ `reset --hard` 会顺手**删掉** `backend/dvadmin/alert/rules/devops_rules.yml`：
-> 旧历史里它被跟踪，新历史里已移出版本控制。它是 `generate_rules()` 的**运行时产物**、
-> 一按「同步规则」就重新生成 ⇒ 删掉无害；想留个底就先 `cp` 一份再 reset。
 
 **对齐后**，回到 **§2 第 1 步的核对①**确认已到功能基线 —— 命令在那里，这里不重复。
 
