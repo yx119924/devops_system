@@ -163,8 +163,16 @@ class ImportSerializerMixin:
             #   ① 导入解析只读第一个 sheet（import_to_data 里 workbook[sheetnames[0]]），
             #      所以加这一页**不会**影响导入；
             #   ② 它解决的是「打开模板不知道哪些必填、枚举该填什么」这个问题。
-            notes_ws = wb.create_sheet(_("填写说明"), 2)
-            notes_ws.append([_("列名"), _("是否必填"), _("填写要求 / 可选值")])
+            #
+            # ⚠️⚠️ 传给 openpyxl 的**必须是真 str**：`_()` 是 `gettext_lazy`，返回的是
+            #   一个**不是 str 实例**的懒代理对象，openpyxl 会在两处直接炸：
+            #     create_sheet 的 title → TypeError: expected string or bytes-like object
+            #     append 的单元格值      → ValueError: Cannot convert ... to Excel
+            #   ⇒ 后端 500 ⇒ 前端只看到「导入任务已创建」（它把 JSON 响应一律当成异步任务）。
+            #   所以下面每一处都显式 `str(...)`。（原有代码用 `str(x) if x is not None` 包过，
+            #   新增这几行最初漏了，2026-09-30 内网实机踩到。）
+            notes_ws = wb.create_sheet(str(_("填写说明")), 2)
+            notes_ws.append([str(_("列名")), str(_("是否必填")), str(_("填写要求 / 可选值"))])
             for title, is_required, options in notes:
                 requirement = "必填，不能为空" if is_required else "可留空"
                 if options:
@@ -173,7 +181,7 @@ class ImportSerializerMixin:
                                  "是" if is_required else "否",
                                  requirement])
             notes_ws.append([])
-            notes_ws.append([_("说明"), "", "带 * 的列为必填；关联列（机房/环境/业务线）"
+            notes_ws.append([str(_("说明")), "", "带 * 的列为必填；关联列（机房/环境/业务线）"
                                                "必须填写「已存在」的名称，请先到对应管理页创建。"])
             for _c, _w in zip("ABC", (22, 10, 80)):
                 notes_ws.column_dimensions[_c].width = _w
