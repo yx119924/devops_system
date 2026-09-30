@@ -23,24 +23,26 @@
 # ① 目标机能不能直连 GitHub？
 git -C <部署目录> ls-remote origin HEAD        # 通 → 通道 A；报 GnuTLS/timed out → 通道 B/C
 
-# ② 有没有一台「能上外网 + 装了 docker」的机器？（构建前端镜像用）
+# ② 有没有一台「能上外网 + 装了 docker」的机器？（万一目标机自己构建不了，用它兜底）
 docker version                                   # 该机执行
 
 # ③ 本批有没有改 web/ ？（决定前端要不要重建；先 fetch 再比，不需要先知道新提交号）
 git -C <部署目录> fetch origin && git -C <部署目录> diff --name-only HEAD origin/main -- web/
-#   有输出 ⇒ 前端必须重建（§4）；无输出 ⇒ 前端不用动
+#   有输出 ⇒ 前端必须重建（§2 第 4 步）；无输出 ⇒ 前端不用动
 ```
 
 决策表：
 
 | 情况 | 走哪条通道 | 前端怎么办 |
 |---|---|---|
-| ①通 | **通道 A**（`git pull`） | 外网机重建镜像 → save → load（§4 办法 1） |
-| ①不通，有外网机 | **通道 B**（离线包 + scp） | 同上（外网机顺手构建） |
-| ①不通，没外网 docker 机 | 通道 B + 应急 | **§4 办法 2**（只换 `dist`，不重建镜像） |
+| ①通 | **通道 A**（`git pull`） | **§2 第 4 步**：先探测，能就地构建走 ②A，否则走 ②B |
+| ①不通，有外网机 | **通道 B**（离线包 + scp） | 同上；外网机顺手把镜像也构建了（②B） |
+| ①不通，没外网 docker 机 | 通道 B + 应急 | **§4.3**（只换 `dist`，不重建镜像） |
 | 想长期省事 | **通道 C**（给目标机配 SSH key） | —— |
 
 > ★ **本批改动了 4 个 `web/src/**` 文件 ⇒ 前端必须重建**，这一步绕不过去。
+> ★ **镜像不会"跟着代码自己更新"** —— 只 `git pull` 的话，页面永远是旧的。
+> 这是最容易漏的一步，所以 §2 第 4 步把它做成了**自包含的三段**（探测 → 构建 → 核验）。
 
 ---
 
@@ -256,19 +258,67 @@ print('总规则数:', AlertRule.objects.count())
 > 升级前的规则全都只存在于 Prometheus 侧，若不明文标成 `prom`，升级后第一次点「同步规则」
 > 会把它们**再下发一遍**，与 Prometheus 原有规则**重复触发**。迁移里的 `RunPython` 就是干这个的。
 
-### 第 4 步 · 前端（必须重建镜像，内网不能就地构建）
+### 第 4 步 · 前端（改了 `web/` 就必须重建镜像）
 
-完整步骤见 **§4**。最小路径（在内网目标机上执行）：
+> ★ **先记住一件事**：`xwops/web:1.0.0` 是把前端**编译进镜像**的。
+> 代码拉下来了，**镜像不重建就永远是旧的** —— 目标机上现在跑的还是上次构建出来的那份。
+> 所以这一步是「**要么就地构建、要么在外网机构建后把 tar 搬进来**」，二选一，绕不开。
+
+**① 先探测：这台机器能不能就地构建？**
+
+```bash
+curl -s -o /dev/null -w 'npm源=%{http_code}\n' --max-time 8 https://registry.npmmirror.com/
+docker pull node:20-alpine && docker pull nginx:alpine     # 构建要用的两个基础镜像
+```
+
+> `npm源=200` 且两个 `docker pull` 都完成 ⇒ 走 **②A**；
+> 任一条失败（超时 / 拉不动）⇒ 走 **②B**。
+
+**②A 就地构建（最省事）**
 
 ```bash
 cd <部署目录>
-cd docker && md5sum -c checksums.txt && cd ..     # 校验刚拷进来的镜像包
+docker compose up -d --build dvadmin3-web
+```
+
+**②B 外网机构建 → 导出 → 搬进来 → 加载**（目标机不能构建时）
+
+```bash
+# —— 在外网机执行（要能访问 npm 源、装了 docker）——
+cd <仓库根目录>
+docker build -f docker_env/web/Dockerfile -t xwops/web:1.0.0 .
+bash docker/save-images.sh --web-only        # 产出 docker/xwops-web-1.0.0.tar
+
+# 把下面【两个】文件一起拷到目标机（scp / U 盘 / 跳板机都行）：
+#   docker/xwops-web-1.0.0.tar
+#   docker/checksums.txt     ★ 必须一起拷！save-images.sh 会把它覆盖成本次包的校验值，
+#                              下一步的 md5sum -c 就是拿它来对
+```
+
+```bash
+# —— 在目标机执行 ——
+cd <部署目录>
+cd docker && md5sum -c checksums.txt && cd ..     # 校验搬运过程有没有损坏
 docker load -i docker/xwops-web-1.0.0.tar         # 同 tag 覆盖旧镜像
 docker compose up -d --no-build dvadmin3-web
 ```
 
 > ★ 一定要 `--no-build`：`docker-compose.yml` 里 `image:` 与 `build:` 是**并存**的，
-> 不加这个参数会把「容器起来」和「是否又触发了一次（内网必然失败的）构建」混在一起，事后说不清跑的是哪个版本。
+> 不加这个参数会把「容器起来」和「是否又触发了一次构建」混在一起，事后说不清跑的是哪个版本。
+
+**③ 怎么确认容器真换成了新镜像**（只看「容器 Up」判断不出来）
+
+```bash
+docker inspect dvadmin3-web --format '{{.Image}}'          # 容器引用的镜像 ID
+docker image inspect xwops/web:1.0.0 --format '{{.Id}}'    # 该 tag 现在的镜像 ID
+curl -s -o /dev/null -w 'HTTP=%{http_code}\n' http://127.0.0.1:8080/    # 期望 200
+```
+
+> 两个 ID 应当对应（`docker inspect` 给的是容器引用的那个镜像 ID）；`HTTP=200` 且**页面不是旧的**
+> 才算换成功。前端只改一个 `.vue` 也可能因构建报错产出空 `dist`，届时 8080 会返回 404 或空白页。
+
+> ★ 想在**上线前**先把产物验一遍（推荐），见 §4.2 的产物核验清单。
+> ★ 没有外网 docker 机、又急着上 ⇒ §4.3 的应急办法（只换 `dist`，不重建镜像）。
 
 ### 第 5 步 · 打通规则投递（★ 本批新增，不配的话「同步规则」会明确报错）
 
@@ -447,30 +497,44 @@ curl -fsSL https://cdn.jsdelivr.net/gh/yx119924/devops_system@main/<文件相对
 
 ---
 
-## 4. 前端产物怎么进目标机
+## 4. 前端构建：细节、核验与备选
 
-### 办法 1 · 重建镜像 + save / load（**推荐**）
+> ★ **本节不含"执行步骤"** —— 构建与交换镜像的命令在 **§2 第 4 步**（②A 就地 / ②B 外网机搬运）。
+> 这里只讲**为什么**、**怎么验**、以及**没有外网 docker 机时的备选**。
+> （同一个命令写在两处必然漂移 —— 所以本节只保留 §2 里没有的那部分。）
 
-在**能上外网 + 有 docker** 的机器上（`docker_env/web/Dockerfile` 里的 `npm install` 需要外网）：
+### 4.1 两个容易踩的点
+
+- **沿用同一个 tag `xwops/web:1.0.0`**：`docker-compose.yml` 一个字都不用改，少一个出错点。
+  若确实要换 tag（如 `1.1.0`），**必须同步改 `docker-compose.yml` 的 `image:` 行**，
+  否则表现是「明明 load 了新镜像，页面还是老的」。
+- **覆盖同一个 tag 只影响之后新建的容器**。正在跑的容器引用的是**镜像 ID**，不会被换掉
+  ⇒ 必须 `docker compose up -d`（重建容器）才生效 —— 这也是 §2 第 4 步 ③ 要你去比对
+  「容器引用的镜像 ID」和「tag 现在的镜像 ID」的原因。
+
+### 4.2 产物核验清单（**上线前**做，建议固化进流程）
+
+构建完、打包前先扫一遍镜像里的静态文件。以下几条是发版时实际跑过的，
+能挡住「外链图片在内网裂图」「把内部邮箱/密钥编进前端」这类问题：
 
 ```bash
-cd <仓库根目录>
-docker build -f docker_env/web/Dockerfile -t xwops/web:1.0.0 .
-
-# ★ 上线前先看产物，别急着打包
-docker run --rm --entrypoint sh xwops/web:1.0.0 -c \
-  'ls -la /usr/share/nginx/html && grep -o "<title>[^<]*</title>" /usr/share/nginx/html/index.html'
-
-# 只打包 web 一个镜像
-bash docker/save-images.sh --web-only        # 产出 docker/xwops-web-1.0.0.tar + checksums.txt
+docker run --rm --entrypoint sh xwops/web:1.0.0 -c '
+cd /usr/share/nginx/html
+echo "— 关键元素 —"
+grep -o "<title>[^<]*</title>" index.html
+echo "— 外部图片链接（应全 0）—"
+grep -r -o -E "https?://[A-Za-z0-9.-]+" . | grep -E "baidu|csdnimg|alicdn|qiniu|cloudfront|unsplash|gravatar" | wc -l
+echo "— 邮箱样式串（应全 0，防止把内部邮箱编进前端）—"
+grep -r -o -E "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}" . | sort -u
+echo "— 内网地址 / 默认口令（应全 0）—"
+grep -r -o -E "localhost:8000|admin123456|9ba8fc80" . | sort -u | wc -l
+'
 ```
 
-把 `docker/xwops-web-1.0.0.tar` 和 `checksums.txt` 拷到目标机，然后按 §2 第 4 步 `docker load` + `up -d --no-build`。
+> 注意这里用的是**正则匹配模式**（「任意邮箱」「任意图片 CDN 域名」），
+> 而不是把具体的敏感串写进命令 —— 否则文档本身就变成了泄露渠道。
 
-> ★ **沿用同一个 tag `xwops/web:1.0.0`**：`docker-compose.yml` 一个字都不用改，少一个出错点。
-> 若确实换 tag，**必须同步改 `docker-compose.yml` 的 `image:` 行**，否则表现是「load 了新镜像，页面还是老的」。
-
-### 办法 2 · 只替换 `dist`，不重建镜像（**应急 / 没有外网 docker 机时**）
+### 4.3 应急：只替换 `dist`，不重建镜像（**没有外网 docker 机时**）
 
 思路：不动镜像，把新编译的静态文件**挂进** web 容器覆盖 `/usr/share/nginx/html`。
 
@@ -499,10 +563,10 @@ YAML
 docker compose up -d --no-build dvadmin3-web
 ```
 
-> ⚠️ `docker-compose.override.yml` 里 service 名**不要重复出现**。若第 5 步已经建过这个文件，
+> ⚠️ `docker-compose.override.yml` 里 service 名**不要重复出现**。若 §2 第 5 步已经建过这个文件，
 > 把 `dvadmin3-web:` 这一段**手工粘到同一个文件里**（与 `dvadmin3-django` 平级），别写两个 `services:` 键。
 >
-> ⚠️ 办法 2 的**回滚**最快：删掉那行挂载 → `docker compose up -d --no-build dvadmin3-web`，立刻回到镜像里的旧版。
+> ⚠️ 这个办法的**回滚**最快：删掉那行挂载 → `docker compose up -d --no-build dvadmin3-web`，立刻回到镜像里的旧版。
 > 但它是**运行时挂载**，下次别人 `docker compose up -d`（无 override）就会「无声回退」—— 只适合应急，别当长期方案。
 
 ---
@@ -562,7 +626,7 @@ Prometheus → Alertmanager → 平台 webhook(202) → Celery → 告警事件�
 
 **后端**（最快）：把 §2 第 2 步拷进去的 4 个文件换回旧版，`docker compose restart dvadmin3-django dvadmin3-celery`。
 
-**前端**：换回旧镜像（`docker load` 上一版 tar）或删掉 §4 办法 2 的挂载，然后 `up -d --no-build dvadmin3-web`。
+**前端**：换回旧镜像（`docker load` 上一版 tar）或删掉 §4.3 那行挂载，然后 `up -d --no-build dvadmin3-web`。
 
 **数据库**：`0007` 只做 `AddField` + 一次 `UPDATE`，可安全 `migrate alert 0006` 回退结构，
 但**回退前请先想清楚**：`source`/`labels` 两列一旦被删，页面会立刻报错（前端已引用），
