@@ -268,9 +268,16 @@ git reset --hard origin/main
 | 被跟踪、**且本批也改了**（见 §2.1 清单） | 变成**官方新版** ← 这正是你想要的 |
 | 被跟踪、**但本批没动** | **退回 09-28 的原始内容** ⇒ 你的改动被丢弃 ← **只有这一类会真的丢** |
 
-> ★ 另有一个**会被删掉**的文件：`backend/dvadmin/alert/rules/devops_rules.yml` ——
-> 旧历史里它被跟踪、新历史里已移出版本控制。它是 `generate_rules()` 的**运行时产物**，
-> 一按「同步规则」就重新生成 ⇒ 删掉无害；想留个底就先 `cp` 一份再 reset。
+> ★★ **这个文件必须先备份**：`backend/dvadmin/alert/rules/devops_rules.yml` ——
+> 旧历史里它被跟踪、新历史里已移出版本控制 ⇒ `reset --hard` 会**连文件带内容一起删**。
+>
+> ⚠️ **不要默认它是"平台生成的运行时产物"**。若里面是**人工维护的规则**（内网常见：
+> PostgreSQL / Kafka / 中间件那一整套），删掉就是**真丢** —— 因为 `generate_rules()`
+> 只会写回「数据库里 `source='platform'` 的那部分」，**内容与原来不一样**，覆盖 ≠ 恢复。
+>
+> ⇒ reset 之前先留底，一行：
+> `cp backend/dvadmin/alert/rules/devops_rules.yml ~/devops_rules.yml.bak_$(date +%F_%H%M)`
+> 真的丢了也别慌：这份文件在**旧提交**里，可从 git 历史取回（见 §6 故障表最后一行）。
 
 > ⚠️ **这三个是现场最可能被改过、丢了会疼的被跟踪文件**，reset 前扫一眼
 > `git diff --stat` 里有没有它们：`docker-compose.yml`（静态 IP / 端口 / 挂载）、
@@ -490,6 +497,42 @@ curl -s -o /dev/null -w 'HTTP=%{http_code}\n' http://127.0.0.1:8080/    # 期望
 
 ### 第 5 步 · 打通规则投递（本批专属；不配的话「同步规则」会明确报错）
 
+> 🚨 **动手前先做这两件事，顺序不能反** —— 本步骤会把 Prometheus 的规则目录接给平台，
+> 而平台的「同步规则」是**全量写** `<规则目录>/devops_rules.yml`（**不是追加**）：
+>
+> ```bash
+> # ① 备份整个规则目录（一条命令，是唯一的后悔药）
+> cp -a <Prom规则目录> ~/prom_rules.bak_$(date +%F_%H%M)
+> ls -l ~/prom_rules.bak_*/                 # 确认里面有东西
+>
+> # ② 记下平台里现在有多少条规则 —— 「同步规则」写出来的就是这些
+> ```
+>
+> ⚠️ **为什么必须备份**：平台的下发文件名**固定**叫 `devops_rules.yml`。若你的
+> `<Prom规则目录>` 里**已有同名文件承载着人工规则**，第一次点「同步规则」就会把它
+> **整份替换**成平台数据库里 `source='platform'` 的那些。**人工写的规则不在数据库里，
+> 就不会被写回** —— 丢了之后重载 Prometheus 也救不回来。
+
+> ★★ **推荐做法：给平台单独开一个子目录**，让它永远碰不到你的人工规则：
+>
+> ```bash
+> mkdir -p <Prom规则目录>/platform
+> ```
+>
+> override 里挂 **`<Prom规则目录>/platform`**（而不是整个 `<Prom规则目录>`），
+> 并让 Prometheus 两边都读 —— `prometheus.yml` 里：
+>
+> ```yaml
+> rule_files:
+>   - "rules/*.yml"             # 你人工维护的（保持不动）
+>   - "rules/platform/*.yml"    # 平台下发的
+> ```
+>
+> 改完 `curl -X POST http://127.0.0.1:9090/-/reload` 生效。
+> ⇒ 此后平台**无论怎么全量重写，都只发生在自己那个子目录里**，人工文件零风险。
+>
+> 图省事直接挂整个 `<Prom规则目录>` 也能用，但**必须先做上面的备份**。
+
 **原理**：平台把规则文件写在**自己的容器里**，而 Prometheus 读的是**宿主机的目录**。
 两者在同一台机器上，所以**一行 bind mount** 就能把两者接起来：
 
@@ -510,10 +553,10 @@ cat > docker-compose.override.yml <<'YAML'
 services:
   dvadmin3-django:
     volumes:
-      - /opt/prometheus/rules:/backend/dvadmin/alert/rules
+      - /opt/prometheus/rules/platform:/backend/dvadmin/alert/rules
   dvadmin3-celery:
     volumes:
-      - /opt/prometheus/rules:/backend/dvadmin/alert/rules
+      - /opt/prometheus/rules/platform:/backend/dvadmin/alert/rules
 YAML
 ```
 
@@ -523,14 +566,18 @@ YAML
 services:
   dvadmin3-django:
     volumes:
-      - /opt/prometheus/rules:/backend/dvadmin/alert/rules
+      - /opt/prometheus/rules/platform:/backend/dvadmin/alert/rules
   dvadmin3-celery:
     volumes:
-      - /opt/prometheus/rules:/backend/dvadmin/alert/rules
+      - /opt/prometheus/rules/platform:/backend/dvadmin/alert/rules
   # ...你原有的其它服务/挂载保持不动
 ```
 
-> ★ 把 `/opt/prometheus/rules` 换成你环境里 **Prometheus `rule_files` 真正指向的目录**。
+> ★ 把 `/opt/prometheus/rules/platform` 换成你环境里 **`<Prom规则目录>/platform`**
+> （先 `mkdir -p` 建出来；这就是上面推荐的"子目录隔离"）。
+> ★ 若你**就是想直接挂整个 `<Prom规则目录>`**（老做法）：把上面两处的
+> `/platform` 去掉即可 —— 但**务必先做第 5 步开头的备份**，否则第一次「同步规则」
+> 就会把你的人工 `devops_rules.yml` 整份换掉。
 > ★ compose 对 `volumes` 是**追加合并**：原来的 `./backend:/backend` 仍在，新增的这条**更深**，
 > 容器内 `/backend/dvadmin/alert/rules` 由它接管 —— 所以**不用改 `RULES_DIR`，不用改一行代码**。
 > ★ `docker-compose.override.yml` 里 **`services:` 这个顶层键只能有一个**，
@@ -562,8 +609,8 @@ docker inspect dvadmin3-django --format '{{range .Mounts}}{{.Destination}}{{"\n"
 ```bash
 docker exec dvadmin3-django sh -c \
   'echo probe > /backend/dvadmin/alert/rules/.write_probe && ls -l /backend/dvadmin/alert/rules/.write_probe'
-ls -l /opt/prometheus/rules/.write_probe          # 宿主机必须也能看到这个文件
-rm -f /opt/prometheus/rules/.write_probe
+ls -l /opt/prometheus/rules/platform/.write_probe   # 宿主机必须也能看到这个文件
+rm -f /opt/prometheus/rules/platform/.write_probe
 ```
 
 **应该看到**：两条 `ls -l` 都能列出 `.write_probe`。
@@ -674,9 +721,10 @@ Prometheus → Alertmanager → 平台 webhook(202) → Celery → 告警事件�
 |---|---|---|
 | 升级后第一次点「同步规则」，**存量规则没被下发** | 迁移把存量规则标成了 `prom`（只纳管不下发），这是**防双发**的设计 | 正常。要让平台接管某条，把它的「来源」改成「平台」 |
 | 点「同步规则」**直接报错**，说读不到 N 条规则 | **回读校验**发现 Prometheus 里没读到 —— 说明投递没打通 | 做 §3 第 5 步（bind mount） |
+| 点完「同步规则」，`<Prom规则目录>` 里的**人工规则不见了** | 平台是**全量写**固定文件名 `devops_rules.yml`（不是追加）⇒ 把同名的人工文件整份替换了 | ⚠️ 按 §6 故障表最后一行的办法**从 git 历史取回**；之后改用「子目录隔离」（§3 第 5 步）防复发 |
 | 平台规则触发了但**收不到告警** | 平台规则 labels 只有 `severity`，命中不了 AM 里 `match: {team: ops}` 的路由 | 做 §3 第 6 步 |
 | 「活跃告警」里同一个任务名出现 19 行 | 规则是 `sum by (process_name) ... > 0` ⇒ **每个不同 `process_name` 一条独立序列**，Alertmanager 按标签指纹去重，标签不同就是不同告警 | 正常。详情弹窗新增的「指纹」行可以自证：指纹不同 = 两条独立告警 |
-| `backend/dvadmin/alert/rules/devops_rules.yml` 在 `git status` 里显示为已删除跟踪 | 该文件是**程序生成的运行时产物**，已移出版本控制（磁盘上还在） | 正常。别再 `git add` 它 |
+| `backend/dvadmin/alert/rules/devops_rules.yml` 在 `git status` 里显示为已删除跟踪 | 该文件已移出版本控制（磁盘上还在）—— ★ **注意：它里面可能是人工维护的规则，不是"程序生成的"** | 现象正常；**别 `git add` 它**，也**别让平台全量覆盖它**（见 §3 第 5 步） |
 | `git pull` 报 `Not possible to fast-forward` | 远端历史被重写过（有人 `amend` / 强推），本地指向一个远端已不存在的提交 | §9.2 有一条命令分辨；**别照 git 提示做 merge / rebase** |
 
 ---
@@ -702,6 +750,7 @@ Prometheus → Alertmanager → 平台 webhook(202) → Celery → 告警事件�
 | `docker load` 报 **no space left** | 磁盘不足 | 至少留 3 GB |
 | 「同步规则」**提示成功但 Prometheus 里没有** | 平台把规则文件写在自己容器里，**从不投递**到 Prometheus 主机 | 本批起该按钮会**回读**校验，这种情况会直接报错；仍要确保做了 §3 第 5 步 |
 | 「活跃告警」页报 **未配置 Alertmanager 地址** | 该页是**实时透传** `GET {AM}/api/v2/alerts`，与 webhook 落库是**两条独立通路** | 在「监控告警 → 数据源管理」建一条 `source_type=alertmanager` 且**状态启用**的记录 |
+| 点完「同步规则」，`<Prom规则目录>/devops_rules.yml` 里的**人工规则被覆盖没了** | 平台**全量写**这个固定文件名；人工规则不在数据库里，就不会被写回 | ① 先 `cp -a <Prom规则目录> ~/prom_rules.bad_$(date +%F_%H%M)` 留档；② 在**能上外网的机器**上取回旧版（它存在于提交 `d9b20ec`）：<br>`git show d9b20ec:backend/dvadmin/alert/rules/devops_rules.yml > devops_rules.yml`<br>或 `curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/d9b20ec/backend/dvadmin/alert/rules/devops_rules.yml -o devops_rules.yml`<br>（应为 **18214 字节 / 50 条 / md5 `98ac24469fb0d5c9184fc06afbff04f7`**）；③ 拷回 `<Prom规则目录>/devops_rules.yml`；④ `curl -X POST http://127.0.0.1:9090/-/reload`；⑤ 改用「子目录隔离」（§3 第 5 步）防复发。<br>★ 该文件在**公开仓库的历史**里 ⇒ 内容对外可见，建议尽快清理历史 |
 
 **深挖用的三条命令**（卡住时先跑这个，比猜快）：
 
