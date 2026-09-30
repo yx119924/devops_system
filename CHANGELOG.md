@@ -5,7 +5,7 @@
 
 ---
 
-## 未发布 —— 告警规则「双源共存」+ 下发回读校验（2026-09-29）
+## 未发布 —— 告警规则「双源共存」+ 下发回读校验 + CMDB 导入模板修复（2026-09-29 起）
 
 ### 背景
 
@@ -30,6 +30,7 @@
 | 运行时产物移出版本控制 | `.gitignore`（+ `backend/dvadmin/alert/rules/.gitkeep`） | `backend/dvadmin/alert/rules/*.yml` 是 `generate_rules()` 的**运行时产物**，每次「同步规则」整份覆盖，内容是本环境真实的规则名/job/阈值 —— 之前被提交进了公开仓库。现在改为忽略，只保留 `.gitkeep` 占位 |
 | 新增**增量更新手册** | `UPDATE.md`（+ `README.md` / `DEPLOY.md` 索引） | 把「环境已跑起来后怎么打一次更新」写成可照抄的 runbook：① 按「目标机能不能上网」分三条代码通道（`git pull` / 离线补丁包 / 配 SSH key）；② 目标机不能就地构建前端时的两种交付（重建镜像 `save`/`load`、应急只换 `dist` + bind mount）；③ 规则投递的 compose override 写法与「容器内写→宿主机看」验证法；④ Alertmanager 两个手工改动；⑤ 回归验收清单与回滚。附 8 个关键文件的 md5 供对账 |
 | `.gitignore` 补 `docker-compose.override.yml` | `.gitignore` | 该文件里写的是**本机才有的宿主路径**（如 Prometheus 规则目录），换个环境就不一样，不进版本控制 |
+| CMDB 导入模板标注必填 + 导入错误可见 | `backend/dvadmin/utils/import_export_mixin.py`、`web/src/components/importExcel/index.vue` | ① **模板**：必填列自动追加 `*`（真值取自导入序列化器的 `required`，不是手写清单 —— `blank=True`/带 `default=` 的不算必填），并新增一页「**填写说明**」逐列写明是否必填与可选值；表头加 `*` 不影响导入（`import_to_data` 按**列位置**取值，不读表头文字）。② **修「下载导入模板」报 500**：`gettext_lazy`（`_()`）返回的是**不是 `str` 实例**的懒代理，`openpyxl` 在 `create_sheet(title)` 与 `append(值)` 两处会直接抛 `TypeError`/`ValueError` ⇒ 后端 500。所有交给 openpyxl 的翻译结果显式 `str()` 包裹。③ **前端不再吞错**：`importExcel` 的 `.catch()` 原来为空、且 `el-upload` 没绑 `:on-error` ⇒ 后端校验错误（"机房不存在"/"必填项为空"）完全静默；现在两处都给出 `ElMessage.error` 并回显后端 `msg` |
 
 > ⚠️ `devops_rules.yml` 已从索引移除，但**它仍存在于 v1.0.0 的提交历史里**（公开仓库）。
 > 若要彻底清除，需重写历史后强推（与之前 amend + force-push 的做法一致），
