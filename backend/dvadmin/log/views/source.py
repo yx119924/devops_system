@@ -7,7 +7,9 @@ ES 日志数据源管理 + 日志检索代理
   test    -> GET  {url}/                  连通性测试
   all     -> GET                          下拉选项
 """
+import logging
 import re
+import time
 
 import requests
 from rest_framework import serializers
@@ -18,6 +20,8 @@ from dvadmin.bastion.crypto import encrypt
 from dvadmin.utils.json_response import DetailResponse, ErrorResponse
 from dvadmin.utils.serializers import CustomModelSerializer
 from dvadmin.utils.viewset import CustomModelViewSet
+
+logger = logging.getLogger(__name__)
 
 # 合法索引名/模式：ES 索引名允许字母数字下划线短横点，模式额外允许 * , +
 _INDEX_RE = re.compile(r'^[A-Za-z0-9_\-.*,+]+$')
@@ -118,6 +122,27 @@ def _safe_index(value):
     if not v or not _INDEX_RE.match(v):
         return ''
     return v
+
+
+# ★ 时间戳格式：前端 el-date-picker 的 `value-format="YYYY-MM-DD HH:mm:ss"` 是**空格**分隔，
+#   而 ES 的 @timestamp 默认 format 是 `strict_date_optional_time`，只认 ISO 8601 的 **`T`** 分隔。
+#   2026-10-09 实测（nginx-log-* / aichem-service-log-* 同 ES）：
+#     `{"range":{"@timestamp":{"gte":"2026-10-09 11:34:05"}}}` -> HTTP 400
+#     `{"range":{"@timestamp":{"gte":"2026-10-09T11:34:05"}}}` -> HTTP 200
+#   ⇒ 不做归一化的话，用户在检索页**一旦选了时间范围，查询必然 400**。
+_TS_SPACE_RE = re.compile(r'^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$')
+
+
+def _norm_ts(value):
+    """把 'YYYY-MM-DD HH:mm:ss' 归一化成 ES 认的 ISO 8601 'YYYY-MM-DDTHH:mm:ss'。
+
+    其余形式（带 T / 带时区 / `now-1d` 日期数学）原样透传；空值统一返回 None。
+    """
+    s = str(value or '').strip()
+    if not s:
+        return None
+    m = _TS_SPACE_RE.match(s)
+    return f"{m.group(1)}T{m.group(2)}" if m else s
 
 
 def _merge_index(name):
@@ -269,8 +294,10 @@ class ElasticsearchSourceViewSet(CustomModelViewSet):
 
         keyword = (body.get('keyword') or '').strip()
         level = (body.get('level') or '').strip()
-        from_ts = body.get('from') or None
-        to_ts = body.get('to') or None
+        # ★ 必须归一化：前端 el-date-picker 的 value-format 是「空格」分隔，
+        #   而 ES 的 @timestamp 只认 ISO 8601 的「T」分隔 —— 不转就是 HTTP 400（见 _norm_ts）
+        from_ts = _norm_ts(body.get('from'))
+        to_ts = _norm_ts(body.get('to'))
         try:
             size = max(1, min(int(body.get('size', 50)), 200))
         except (TypeError, ValueError):
@@ -325,14 +352,33 @@ class ElasticsearchSourceViewSet(CustomModelViewSet):
         if not index:
             return ErrorResponse(msg="索引模式为空，请在数据源或检索页指定")
         url = f"{base}/{index}/_search"
+        # ★ 计时埋点（2026-10-09 加）：
+        #   排「大索引检索 5s 超时」时得到一个反常事实 —— 在同一台 ES 上直连复刻该 DSL
+        #   只要 **0.65s**，而 `GetEsIndices`（同一个 5s 前端超时、同一个 ES 地址）也能成功，
+        #   即 django→ES 这条路是通的。也就是说「5s 到底被谁吃掉」当时**没有任何数据能区分**
+        #   「ES 那一步慢」还是「django/网络慢」，只能靠猜。
+        #   这行日志把 **ES 往返耗时** 单独打出来，下次再超时，`docker logs dvadmin3-django`
+        #   里比对 es=xxxms 与请求总耗时，一眼就能分清是谁的问题。
+        _t0 = time.monotonic()
         try:
             resp = requests.post(url, json=dsl, auth=source.get_auth(), timeout=20)
         except requests.exceptions.Timeout:
+            logger.warning("[log.search] ES 自身超时(20s) source=%s index=%s 已耗时=%.0fms url=%s",
+                           source.id, index, (time.monotonic() - _t0) * 1000, url)
             return ErrorResponse(msg=f"ES 请求超时（20s）：{base}")
         except requests.exceptions.ConnectionError:
+            logger.warning("[log.search] ES 连接失败 source=%s index=%s 已耗时=%.0fms url=%s",
+                           source.id, index, (time.monotonic() - _t0) * 1000, url)
             return ErrorResponse(msg=f"无法连接 ES：{base}")
         except requests.exceptions.RequestException as e:
+            logger.warning("[log.search] ES 请求异常 source=%s index=%s 已耗时=%.0fms err=%s",
+                           source.id, index, (time.monotonic() - _t0) * 1000, e)
             return ErrorResponse(msg=f"ES 请求异常：{e}")
+
+        logger.info("[log.search] source=%s index=%s level=%s size=%s offset=%s range=%s..%s "
+                    "-> es=%.0fms http=%s bytes=%d",
+                    source.id, index, level or '-', size, offset, from_ts or '-', to_ts or '-',
+                    (time.monotonic() - _t0) * 1000, resp.status_code, len(resp.content))
 
         if resp.status_code == 404:
             return ErrorResponse(msg=f"索引不存在或没有匹配的索引：{index}")
