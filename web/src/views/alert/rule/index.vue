@@ -71,6 +71,15 @@ export default defineComponent({
 }
 :deep(.fs-crud-search),
 :deep(.fs-search-column) {
-  padding-right: 200px;
+  /* ★ 这个 padding-right 是给「悬浮操作栏」让位用的（操作栏是 position:absolute + right:20px）。
+     所以它必须 ≥ 操作栏实际宽度 + 20px，否则操作栏会盖住搜索行自带的「查询 / 重置」。
+
+     本页的操作栏有 3 个按钮，比其它页宽：
+       添加(≈58) + 同步 Prom(≈92) + 同步规则(≈86) + 2×6 gap(≈12) ≈ 248px，再 + right:20 ≈ 268px
+     而其它页只有 1~2 个短按钮（≤180px），所以用默认的 200px 就够 —— 本页不够，
+     表现为「重置」被压成「重」、按钮叠在一起。
+
+     ★ 以后再往本页 actionbar 加按钮，记得同步加大这个值（用浏览器 F12 量一下新宽度）。 */
+  padding-right: 320px;
 }
 </style>
