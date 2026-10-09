@@ -5,7 +5,69 @@
 
 ---
 
-## 未发布 —— 告警规则「双源共存」+ 下发回读校验 + CMDB 导入修复（2026-09-29 起）
+## XwOps v1.1.0（2026-10-09）
+
+相对 **v1.0.0（2026-09-29）** 的增量版本。
+
+> ⚠️ **前端源码有改动 ⇒ 镜像包必须一起换**（本项目前端是**编译进镜像**的，不是挂载）。
+> 请把「源码」与「Release 附件里的镜像包」**成对**下载，别拿 v1.0.0 的镜像去配 v1.1.0 的源码。
+
+### 新增：可视化发布流水线（`release` 模块）
+
+目标是一句话：「点一下流程就能把服务发出去，发布服务器从 CMDB 里选」。
+
+| 层 | 交付物 |
+|---|---|
+| 后端 | 新 app `backend/dvadmin/release/` —— 4 张表（流水线 / 节点 / 执行记录 / 节点日志）+ `engine.advance_run()` 状态机 + 6 种节点类型 + `ssh_sftp.sftp_put` 制品上传 |
+| 前端 | `web/src/views/release/`（10 个文件）—— 流程编排（`pipeline/`）+ 执行记录与运行面板（`run/`） |
+| 权限 | `backend/register_release.py` —— 幂等注册菜单（**id=52 / 53**）与 **16 个按钮** |
+| 门禁 | `backend/verify_release.py --selftest` —— **85 条断言 / 6 个对照组**，离线可跑 |
+
+★ **菜单与按钮必须登记**，否则「页面在、按钮全没」或非超管恒返回业务码 **4000**（HTTP 200 + code 4000，很容易误判成"没登录"）。登记命令：
+
+```bash
+docker exec dvadmin3-django python /backend/register_release.py --dry-run   # 先看
+docker exec dvadmin3-django python /backend/register_release.py --apply     # 再写
+```
+
+### 修复：日志检索「一选时间范围就失败」
+
+检索页的时间选择器用 `value-format="YYYY-MM-DD HH:mm:ss"`（**空格**分隔），
+而 ES 的 `@timestamp` 默认 format 是 `strict_date_optional_time`，只认 ISO 8601 的 **`T`** 分隔。
+2026-10-09 在同一台 ES 上实测：
+
+| 请求体片段 | 结果 |
+|---|---|
+| `{"range":{"@timestamp":{"gte":"2026-10-09 11:34:05"}}}` | **HTTP 400** |
+| `{"range":{"@timestamp":{"gte":"2026-10-09T11:34:05"}}}` | HTTP 200 |
+
+⇒ **只要在检索页选了时间范围，查询必然失败**（此前一直没人成功用过时间窗）。
+
+| 改动 | 文件 | 说明 |
+|---|---|---|
+| 时间戳归一化 | `backend/dvadmin/log/views/source.py` | 新增 `_norm_ts()`：`YYYY-MM-DD HH:mm:ss` → `YYYY-MM-DDTHH:mm:ss`；`now-1d` 之类的日期数学、带时区的一律**原样透传** |
+| 前端显式超时 | `web/src/views/log/search/api.ts` | `SearchLogs` / `GetEsIndices` 显式 `timeout: 30000`。全局 `request()` 默认只有 **5s**（`web/src/utils/service.ts` 的 `configDefault.timeout` **覆盖**了 axios 实例的 20000），而后端给 ES 的是 20s ⇒ **外层 5s < 内层 20s 是错的**，前端会先断开，把后端那句中文错误埋掉，用户只看到 axios 原文 `timeout of 5000ms exceeded`。**原则：外层超时必须 > 内层超时** |
+| ES 往返计时埋点 | 同上 `source.py` | 每次检索打一行 `[log.search] … -> es=xxxms http=xxx bytes=xxx`，用于区分「ES 慢」还是「平台慢」 |
+
+### 修复：DRF 校验错误详情解析
+
+`backend/dvadmin/utils/exception.py` —— 原实现假设「每个字段的错误值都是列表」，
+但 DRF 的 `_get_error_details()` 对**字符串值**返回的是**单个 `ErrorDetail`**，
+逐字符遍历后会拼出 `必填:必填:必填:…` 这种乱码提示。现按类型分别处理。
+
+### 升级注意
+
+> ★ **逐条命令见 [`UPDATE.md`](UPDATE.md) · 「v1.1.0 增量（2026-10-09）」一节**。下面只是要点。
+
+- 需要执行 **2 次迁移**：`python manage.py migrate release`（4 张新表）+
+  `python manage.py migrate bastion`（`CommandLog.source` 新增 `release` 取值）。
+- ★ 改了 `web/` ⇒ **必须重建 web 镜像**（前端是编译进镜像的，不是挂载）。
+- 后端 `.py` 改动需**重启** `dvadmin3-django` / `dvadmin3-celery`（uvicorn 未开 `--reload`）。
+- 发布流水线要用，必须跑 `register_release.py` 注册菜单与按钮。
+
+---
+
+## 附（并入 v1.1.0）：告警规则「双源共存」+ 下发回读校验 + CMDB 导入修复（2026-09-29 起）
 
 ### 背景
 

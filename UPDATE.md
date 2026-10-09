@@ -9,10 +9,11 @@
 
 | 项 | 值 |
 |---|---|
-| 功能基线提交 | **`4b0a80e`** |
-| 内容 | 告警规则「双源共存(source/labels)」+ 下发回读校验；首页卡片跳转修正；运行时产物移出版本控制；<br>CMDB 导入模板标注必填项 + 前端不再吞掉导入错误；<br>修「下载导入模板」报 500（`gettext_lazy` 对象不能直接交给 openpyxl）；<br>修「上传后导入报文件不存在」（统一上传落盘与回读的路径口径） |
-| 日期 | 2026-09-29 起（`4b0a80e` 是 09-30 的收尾修复，已并入本基线） |
-| 影响面 | 6 个后端文件（含 1 个**新迁移**）+ 5 个前端文件 ⇒ **前端必须重建镜像** |
+| 版本 | **v1.1.0**（Release 附件 `xwops-images-v1.1.0.tar`） |
+| 功能基线提交 | **`d11565d`**（历史：v1.0.0 的功能基线是 `4b0a80e`） |
+| 内容 | **新增「可视化发布流水线」** —— 新 app `dvadmin/release/`（4 张表 / 6 种节点 / 状态机）+ 前端编排与运行面板 + 菜单/按钮注册脚本；<br>修**日志检索**「一选时间范围就 400」（时间戳空格 → `T` 归一化）+ 前端显式超时 + ES 往返计时埋点；<br>修 **DRF 校验错误的中文提示被吃成乱码**（字符串值被当列表逐字符遍历） |
+| 日期 | 2026-10-09 |
+| 影响面 | **18 个后端文件**（含 **2 个新迁移**）+ **11 个前端文件** ⇒ **前端必须重建镜像**；<br>另需**跑一次菜单/按钮注册脚本**（§3 第 3 步③），否则新菜单不出现或按钮全没 |
 
 > ★ **换一批改动也能用这份文档**。通用步骤（§1 / §3 / §4 / §6 / §7）长期有效；
 > 只有「本批专属」的部分需要替换 —— **怎么替换见 §2.2**。
@@ -148,17 +149,31 @@ git -C <部署目录> fetch origin && git -C <部署目录> diff --name-only HEA
 
 ## 2. 这次要更新什么
 
-### 2.1 本批文件清单（22 个文件 → 4 类动作）
+### 2.1 本批文件清单（**v1.1.0 / 2026-10-09** —— 31 个文件 = 29 代码 + 2 文档）
 
 | 类别 | 文件 | 需要的动作 |
 |---|---|---|
-| **后端源码** | `backend/dvadmin/alert/models.py`<br>`backend/dvadmin/alert/services.py`<br>`backend/dvadmin/alert/views/rule.py`<br>`backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py`<br>`backend/dvadmin/utils/import_export_mixin.py`<br>`backend/dvadmin/utils/import_export.py` | 拷进 `<部署目录>/backend/` → **跑迁移** → 重启 django + celery |
-| **前端源码** | `web/src/views/alert/rule/crud.tsx`<br>`web/src/views/alert/rule/index.vue`<br>`web/src/views/alert/manage/index.vue`<br>`web/src/views/system/home/index.vue`<br>`web/src/components/importExcel/index.vue` | **必须重建 web 镜像**（§3 第 4 步） |
-| **参考配置** | `docker_env/alertmanager/alertmanager.yml`<br>`backend/conf/env.example.py` | **不动线上**。前者是 AM 配置的**样例与注释说明**，线上 AM 请按 §3 第 6 步手工改 |
-| **工程杂项** | `.gitignore`、`README.md`、`DEPLOY.md`、`CHANGELOG.md`、`LOG-COLLECT.md`<br>`docs/images/log-collect/README.md`、`UPDATE.md`（**本文档**） | 无动作（`.gitignore` 只影响下次提交；文档类随仓库一起更新即可） |
-| **运行时产物** | `backend/dvadmin/alert/rules/devops_rules.yml`（**删除跟踪**）<br>`backend/dvadmin/alert/rules/.gitkeep`（**新增**） | **无动作**。磁盘上的规则文件保持原样，平台照常读写 |
+| **后端源码·新增模块** | `backend/dvadmin/release/`（10 个文件：`__init__.py`、`apps.py`、`models.py`、`engine.py`、`ssh_sftp.py`、`urls.py`、`views/__init__.py`、`views/pipeline.py`、`migrations/__init__.py`、`migrations/0001_initial.py`）<br>`backend/register_release.py`（菜单/按钮注册脚本）<br>`backend/verify_release.py`（离线门禁） | 拷进 `<部署目录>/backend/` → **跑迁移** → **跑一次注册脚本**（§3 第 3 步③）→ 重启 django + celery |
+| **后端源码·改动** | `backend/application/settings.py`（注册新 app）<br>`backend/application/urls.py`（挂 `/api/release/`）<br>`backend/dvadmin/bastion/models.py`（`CommandLog.source` 加 `release` 取值）<br>`backend/dvadmin/bastion/migrations/0005_alter_commandlog_source.py`<br>`backend/dvadmin/log/views/source.py`（时间戳归一化 + ES 计时埋点）<br>`backend/dvadmin/utils/exception.py`（DRF 错误详情解析） | 同上（`bastion` **也要跑迁移**） |
+| **前端源码** | `web/src/views/release/`（10 个文件：`pipeline/` 6 个 + `run/` 4 个）<br>`web/src/views/log/search/api.ts`（显式 `timeout`） | **必须重建 web 镜像**（§3 第 4 步） |
+| **工程杂项** | `CHANGELOG.md`、`UPDATE.md`（**本文档**） | 无动作（随仓库一起更新即可） |
 
 > ★ 本批**没有**改 `requirements.txt` ⇒ **django / celery 镜像不用重建**，只重启容器即可。
+> ★ 本批**改了 `web/`** ⇒ **web 镜像必须重建** —— 这是 v1.1.0 相对 v1.0.0 **唯一**的镜像变化。
+> ★ 本批有 **2 个 app 要迁移**（`release` 建 4 张表、`bastion` 给 `CommandLog.source` 加取值）
+> ⇒ §3 第 3 步要跑**两次** `migrate`。
+> ★ 本批**新增 2 个菜单**（发布管理 → 流水线编排 / 执行记录）+ 16 个按钮，
+> 要跑 §3 第 3 步③ 的注册脚本才看得见。
+
+> 📎 **上一批（09-29）的文件清单，保留备查** —— 若你的环境**还没做过那一次升级**，这批文件同样要拷：
+> 后端 `backend/dvadmin/alert/{models,services,views/rule}.py`、
+> `backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py`、
+> `backend/dvadmin/utils/import_export.py`、`backend/dvadmin/utils/import_export_mixin.py`；
+> 前端 `web/src/views/alert/rule/{crud.tsx,index.vue}`、`web/src/views/alert/manage/index.vue`、
+> `web/src/views/system/home/index.vue`、`web/src/components/importExcel/index.vue`；
+> 参考配置 `docker_env/alertmanager/alertmanager.yml`、`backend/conf/env.example.py`
+> （两者都是**样例与说明**，不动线上）；运行时产物
+> `backend/dvadmin/alert/rules/devops_rules.yml`（**仅**移出版本控制，磁盘文件保持原样）。
 
 ### 2.2 换一批改动怎么套这份文档
 
@@ -186,12 +201,12 @@ git -C <仓库根目录> diff --name-status HEAD..origin/main | sort
 
 **第三步：把本文里「本批专属」的部分替换掉** —— 只有这 4 处：
 
-| 位置 | 本批的内容 | 换一批时 |
+| 位置 | 本批（v1.1.0 / 2026-10-09）的内容 | 换一批时 |
 |---|---|---|
-| §3 第 3 步 | 迁移名 `alert`、`0007_*` | 换成你这次的 app 名与迁移文件（`ls backend/dvadmin/*/migrations/`） |
-| §3 第 5 步 | 规则投递挂载 | 只有改了告警规则下发相关的代码才需要 |
-| §3 第 6 步 | Alertmanager `team` 标签 | 同上 |
-| §4.2 | 功能验收项 1~14 | 换成你这批改动的验收点 |
+| §3 第 3 步 | 两个 app：`release`（`0001_initial`）+ `bastion`（`0005_*`）；外加菜单注册脚本 | 换成你这次的 app 名与迁移文件（`ls backend/dvadmin/*/migrations/`） |
+| §3 第 5 步 | 规则投递挂载 —— **本批已标注「跳过」** | 只有改了告警规则下发相关的代码才需要 |
+| §3 第 6 步 | Alertmanager `team` 标签 —— **本批已标注「跳过」** | 同上 |
+| §4.2 | 功能验收项 1~8（v1.1.0） | 换成你这批改动的验收点 |
 
 > ★ 判断"哪批改动算功能基线"的办法：**看哪个提交动了 `backend/` 或 `web/`**。
 > 之后的纯 `*.md` 提交不影响功能，不用管 —— 所以本文只认功能基线 hash，不认"最新提交"。
@@ -317,45 +332,54 @@ git apply /tmp/xwops_update/0001-*.patch
 
 ```bash
 # ① 功能基线提交到位了吗
-#   ★ 只认 4b0a80e 这一个 hash —— 别写成「最新提交」，
+#   ★ 只认 d11565d 这一个 hash（v1.1.0 的功能基线）—— 别写成「最新提交」，
 #     因为本批之后还会陆续有「纯文档提交」，那样写每提交一次文档就过期一次。
-git merge-base --is-ancestor 4b0a80e HEAD && echo "功能基线已到位"
-git log --oneline --grep="上传落盘" -1
-# 期望：4b0a80e fix(import): 统一「上传落盘」与「回读」的路径口径，修导入报文件不存在
+#     历史：v1.0.0 的功能基线是 4b0a80e。
+git merge-base --is-ancestor d11565d HEAD && echo "功能基线已到位"
+git log --oneline --grep="中文提示被吃成乱码" -1
+# 期望：d11565d fix(utils): DRF 校验错误的中文提示被吃成乱码 —— 字符串值不该当列表遍历
 ```
 
 ```bash
-# ② 11 个关键文件的 md5（补丁漏拷/漏改会在这里暴露）
-md5sum backend/dvadmin/alert/models.py \
-       backend/dvadmin/alert/services.py \
-       backend/dvadmin/alert/views/rule.py \
-       backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py \
-       backend/dvadmin/utils/import_export_mixin.py \
-       backend/dvadmin/utils/import_export.py \
-       web/src/views/alert/rule/crud.tsx \
-       web/src/views/alert/rule/index.vue \
-       web/src/views/alert/manage/index.vue \
-       web/src/views/system/home/index.vue \
-       web/src/components/importExcel/index.vue
+# ② 15 个关键文件的 md5（补丁漏拷/漏改会在这里暴露）
+md5sum backend/application/settings.py \
+       backend/application/urls.py \
+       backend/dvadmin/bastion/models.py \
+       backend/dvadmin/bastion/migrations/0005_alter_commandlog_source.py \
+       backend/dvadmin/log/views/source.py \
+       backend/dvadmin/release/models.py \
+       backend/dvadmin/release/engine.py \
+       backend/dvadmin/release/views/pipeline.py \
+       backend/dvadmin/release/ssh_sftp.py \
+       backend/dvadmin/release/urls.py \
+       backend/dvadmin/release/migrations/0001_initial.py \
+       backend/dvadmin/utils/exception.py \
+       backend/register_release.py \
+       backend/verify_release.py \
+       web/src/views/log/search/api.ts
 ```
 
-期望输出（前 6 个是后端，后 5 个是前端）：
+期望输出（前 14 个是后端，最后 1 个是前端）：
 
 ```
-758188633cc2c781ff0e68c5af8a884e  backend/dvadmin/alert/models.py
-f769c01f6293c956dc5bce5a0b610b8d  backend/dvadmin/alert/services.py
-59c9b5b8e7a41b5978fcbd997073218f  backend/dvadmin/alert/views/rule.py
-7d2700f10b14e4c73bd6336a7a721ee3  backend/dvadmin/alert/migrations/0007_alertrule_source_labels.py
-319c732636d2ec81dae218d4bb32e810  backend/dvadmin/utils/import_export_mixin.py
-83c0ec91599ae8b4fe80a466d2d32357  backend/dvadmin/utils/import_export.py
-1c7089c924379fd6a4ee8882fa1036ae  web/src/views/alert/rule/crud.tsx
-2cef6f29a1c2c014f5be7fcbcbb0e6ed  web/src/views/alert/rule/index.vue
-9c25c3010ac155b3904cbe0933f73308  web/src/views/alert/manage/index.vue
-a0a417ea40b9f2030aa40306cd37d466  web/src/views/system/home/index.vue
-a995dd372a355e210abdc85068fa4eb3  web/src/components/importExcel/index.vue
+b0f12cd4b8fb3c75fdbb4c317dfa6c92  backend/application/settings.py
+05a12e488031693a112acd1b7e655b08  backend/application/urls.py
+bd480d6549ed54174401578e5360ff9f  backend/dvadmin/bastion/models.py
+122eb02a8444c19fd0cd18fe5f9d02e4  backend/dvadmin/bastion/migrations/0005_alter_commandlog_source.py
+d997dbbe7420c0649f9cd76100b41b4f  backend/dvadmin/log/views/source.py
+d594fd542a7e2526b8256d01c089f510  backend/dvadmin/release/models.py
+bb3e7ada4332ba41eaa514fb62c4c5ef  backend/dvadmin/release/engine.py
+506f119b96d1be1ecee619a06121f780  backend/dvadmin/release/views/pipeline.py
+d6df1440458067dc1f3586eda4b34f46  backend/dvadmin/release/ssh_sftp.py
+77bbb346674389f4d9b5ebca0e846455  backend/dvadmin/release/urls.py
+2c03e6bd7d9d3fb87a78dd0513699f4d  backend/dvadmin/release/migrations/0001_initial.py
+9c9edb47a3b02b28c9d32f13f75adbdf  backend/dvadmin/utils/exception.py
+20c0e82e14c0deee82b30741856f47b7  backend/register_release.py
+a638f4b370c528c7cb59a9a4bea26ac5  backend/verify_release.py
+63f5c558febecc90222929be847d2b1b  web/src/views/log/search/api.ts
 ```
 
-**应该看到**：11 行 md5 与上面完全一致。
+**应该看到**：15 行 md5 与上面完全一致。
 
 > ★ `md5sum` 默认输出是 `<md5>␠␠<文件>`（两个空格）；若你的输出带 `*` 前缀
 > （如 `758188…  *models.py`），那是 binary 模式标记，比对时忽略即可。
@@ -365,14 +389,14 @@ a995dd372a355e210abdc85068fa4eb3  web/src/components/importExcel/index.vue
 > `file <该文件>` —— 报 `CRLF` 就是历史遗留的行尾，`rm <该文件> && git checkout -- <该文件>`
 > 让它按 `.gitattributes` 重新检出即可，**别去改文档**。
 >
-> ★ **只认 `4b0a80e` 这一个 hash —— 所有影响运行时的改动都在它里面**（它的祖先包含 `1d8db6b`、`2eeea68`、`5bfc62d`）。
-> 它之后可能还有若干个**纯文档提交**（如 `dc2ea2a`、`537a63b`），只动 `*.md` 与 `.gitignore`，
-> **不影响功能**。所以：
+> ★ **只认 `d11565d` 这一个 hash（v1.1.0 的功能基线）—— 所有影响运行时的改动都在它里面。**
+> 它之后可能还有若干个**纯文档提交**（只动 `*.md`、`*.gitignore`），**不影响功能**。所以：
 > - `merge-base` 返回 0（该提交是 HEAD 的祖先）⇒ 功能代码已到位；
-> - 通道 B 打补丁时**要打到 `4b0a80e`** —— 只打到 `1d8db6b` 会缺掉 09-30 的最后一处修复
->   （导入报「文件不存在」的路径口径），只到 `2eeea68` 会再缺「下载导入模板 500」，
->   更早的 `5bfc62d` 则连「导入模板必填标注 + 前端导入错误提示」都缺；
+> - 通道 B 打补丁时**要打到 `d11565d`** —— 本批的功能改动分布在 3 个提交里：
+>   `2d30bc8`（日志检索修复）→ `fe08591`（可视化流水线）→ `d11565d`（DRF 错误解析）。
+>   只打到 `2d30bc8` 会缺掉整条发布流水线，只到 `fe08591` 会缺 DRF 错误提示修复；
 > - **md5 对不上 ⇒ 代码没到位，别往下走。**
+> - 历史：v1.0.0 的功能基线是 `4b0a80e`（其祖先含 `1d8db6b`、`2eeea68`、`5bfc62d`）。
 
 ### 第 2 步 · 后端源码就位（`.py` 是挂载的，拷进去即生效）
 
@@ -403,39 +427,64 @@ python3 -m py_compile backend/dvadmin/alert/models.py \
 > ★ 注意：这一步**只把文件放到位**，还没生效 —— 生效靠第 7 步重启容器。
 > 迁移（第 3 步）可以先跑，因为 `docker exec` 会新起一个 Python 进程，读到的是磁盘上的新代码。
 
-### 第 3 步 · 数据库迁移（有迁移文件时必做）
+### 第 3 步 · 数据库迁移 + 菜单按钮注册（有迁移文件时必做）
+
+本批有 **2 个 app** 要迁移。
 
 ```bash
 # 先看会执行什么，只读，不改库
-docker exec dvadmin3-django python manage.py showmigrations alert
+docker exec dvadmin3-django python manage.py showmigrations release bastion
 
-# 执行
-docker exec dvadmin3-django python manage.py migrate alert
+# 执行（★ 两条都要跑）
+docker exec dvadmin3-django python manage.py migrate release
+docker exec dvadmin3-django python manage.py migrate bastion
 ```
 
-**应该看到**：`Applying alert.0007_alertrule_source_labels... OK`
+**应该看到**：`Applying release.0001_initial... OK` 与
+`Applying bastion.0005_alter_commandlog_source... OK`
 
 **验证迁移真的生效了**（别只看 `OK`）：
 
 ```bash
 docker exec dvadmin3-django python manage.py shell -c "
-from dvadmin.alert.models import AlertRule
-vals = set(AlertRule.objects.values_list('source', flat=True))
-print('source 取值集合:', vals)          # 期望 {'prom'}（存量规则全被标为 prom）
-print('总规则数:', AlertRule.objects.count())
+from django.db import connection
+t = set(connection.introspection.table_names())
+print('release 四表:', sorted(x for x in t if x.startswith('release_')))
+print('bastion 新列:', 'source' in [f.name for f in __import__('dvadmin.bastion.models', fromlist=['CommandLog']).CommandLog._meta.get_fields()])
 "
 ```
 
-**应该看到**：`source 取值集合: {'prom'}`（除非你库里本来就有 `platform` 规则）。
+**应该看到**：`release` 的 **4 张表**都在（`release_pipeline` / `release_node` / `release_run` / `release_node_log`），
+且 `bastion 新列: True`。
 
-> ★ 为什么存量规则要标成 `prom`：这批改动引入「**双源共存**」——
-> `source=platform` 的规则会被平台下发到 Prometheus，`source=prom` 的规则只做纳管展示、**不下发**。
-> 升级前的规则全都只存在于 Prometheus 侧，若不明文标成 `prom`，升级后第一次点「同步规则」
-> 会把它们**再下发一遍**，与 Prometheus 原有规则**重复触发**。迁移里的 `RunPython` 就是干这个的。
->
-> ★ **app 名怎么确认**：`migrate` 后面跟的是 Django app label。本题里
-> `backend/dvadmin/alert/apps.py` 的 `name = 'dvadmin.alert'` ⇒ label 是 **`alert`**。
+**③ 注册菜单与按钮**（本批新增；不跑这一步 →「发布管理」的两个子菜单不出现，或页面在但按钮全没）：
+
+```bash
+# 先 dry-run 看要做什么（只读）
+docker cp backend/register_release.py dvadmin3-django:/backend/register_release.py
+docker exec dvadmin3-django python /backend/register_release.py --dry-run
+
+# 确认无误后执行
+docker exec dvadmin3-django python /backend/register_release.py --apply
+```
+
+**应该看到**：dry-run 列出「菜单 2 条 + 按钮 16 条」的增改计划；`--apply` 后提示已授权。
+
+> ★ **为什么每个 `@action` 都必须登记**：DVAdmin 的 `CustomPermission` 是拿 (api 路径, HTTP method)
+> 去 `RoleMenuButtonPermission` 里**逐条** `re.match` 的。漏登记任一 action ⇒ 那条接口对非超管
+> **恒返回业务码 4000**（注意：是 **HTTP 200 + code 4000**，不是 401/403，看日志极易误判成"没登录"）。
+> 只建按钮、不授 `RoleMenuButtonPermission` ⇒ 连超管都「页面在、按钮全没」
+> （前端按钮显隐拿的是"当前角色的按钮数据"，`is_superuser` **不作数**）。
+
+> ★ **app 名怎么确认**：`migrate` 后面跟的是 Django app label。
+> `backend/dvadmin/release/apps.py` 的 `name = 'dvadmin.release'` ⇒ label 是 **`release`**。
 > 报 `No installed app with label 'xxx'` 就是这里写错了。
+
+> 📎 **上一批（09-29）第 3 步的记录，保留备查**：那次是迁移 `alert.0007_alertrule_source_labels`，
+> 给 `AlertRule` 加 `source` / `labels` 两列，并把**存量规则一律标成 `prom`** ——
+> 因为 `source=platform` 的规则会被平台下发到 Prometheus，而存量规则此前只存在于 Prometheus 侧，
+> 不明文标成 `prom` 的话，升级后第一次点「同步规则」会把它们**再下发一遍**，与原规则**重复触发**。
+> **若你的环境还没做过那次升级，先补一条** `docker exec dvadmin3-django python manage.py migrate alert`。
 
 ### 第 4 步 · 前端（改了 `web/` 就必须重建镜像）
 
@@ -470,10 +519,10 @@ docker compose up -d --build dvadmin3-web
 # —— 在外网机执行（要能访问 npm 源、装了 docker）——
 cd <仓库根目录>
 docker build -f docker_env/web/Dockerfile -t xwops/web:1.0.0 .
-bash docker/save-images.sh --web-only        # 产出 docker/xwops-web-1.0.0.tar
+bash docker/save-images.sh --web-only        # 产出 docker/xwops-web-1.1.0.tar
 
 # 把下面【两个】文件一起拷到目标机（scp / U 盘 / 跳板机都行）：
-#   docker/xwops-web-1.0.0.tar
+#   docker/xwops-web-1.1.0.tar
 #   docker/checksums.txt     ★ 必须一起拷！save-images.sh 会把它覆盖成本次包的校验值，
 #                              下一步的 md5sum -c 就是拿它来对
 ```
@@ -482,7 +531,7 @@ bash docker/save-images.sh --web-only        # 产出 docker/xwops-web-1.0.0.tar
 # —— 在目标机执行 ——
 cd <部署目录>
 cd docker && md5sum -c checksums.txt && cd ..     # 校验搬运过程有没有损坏
-docker load -i docker/xwops-web-1.0.0.tar         # 同 tag 覆盖旧镜像
+docker load -i docker/xwops-web-1.1.0.tar         # 同 tag 覆盖旧镜像
 docker compose up -d --no-build dvadmin3-web
 ```
 
@@ -507,7 +556,7 @@ curl -s -o /dev/null -w 'HTTP=%{http_code}\n' http://127.0.0.1:8080/    # 期望
 > ★ 想在**上线前**先把产物验一遍（推荐），见 §8.2 的产物核验清单。
 > ★ 没有外网 docker 机、又急着上 ⇒ §8.3 的应急办法（只换 `dist`，不重建镜像）。
 
-### 第 5 步 · 打通规则投递（本批专属；不配的话「同步规则」会明确报错）
+### 第 5 步 · 打通规则投递（**上一批（09-29）专属 —— 本批（v1.1.0）跳过这一步**）
 
 > 🚨 **动手前先做这两件事，顺序不能反** —— 本步骤会把 Prometheus 的规则目录接给平台，
 > 而平台会**全量重写** `<Prom规则目录>/devops_rules.yml`（**不是追加**）。
@@ -635,7 +684,7 @@ rm -f /opt/prometheus/rules/platform/.write_probe
 
 > `.write_probe` 不以 `.yml` 结尾，不会被 Prometheus 的 glob 解析到，可安全创建删除。
 
-### 第 6 步 · Alertmanager 侧（本批专属，**手工**两个小改动）
+### 第 6 步 · Alertmanager 侧（**上一批（09-29）专属 —— 本批（v1.1.0）跳过这一步**）
 
 **先找到 AM 的配置文件**（不同部署方式路径不同）：
 
@@ -711,20 +760,14 @@ curl -s -o /dev/null -w 'api=%{http_code}\n'  http://127.0.0.1:8080/api/api/
 
 | # | 检查项 | 期望 |
 |---|---|---|
-| 1 | 首页「活跃告警」卡 | 点击跳到 **`/alertManage`（活跃告警菜单）**，不再跳历史告警 |
-| 2 | 首页卡片（原「严重告警(周)」） | 卡片名已变 **「历史告警」**，点击跳 `/alertEvent` |
-| 3 | 首页卡片权限 | 无告警菜单权限的账号看到的是**占位卡**，不误跳 |
-| 4 | 告警规则页 | 列表新增 **「来源」** 与 **「附加标签」** 两列；来源可选「平台（下发）」/「Prom 纳管」 |
-| 5 | 告警规则 → 编辑 → 附加标签填非 JSON | 表单**当场报错**拦截（不会带着脏数据提交） |
-| 6 | 「附加标签」留空提交 | 落库为 `{}`，不报错 |
-| 7 | 活跃告警 → 详情弹窗 | 新增 **「指纹」** 一行 |
-| 8 | 点「同步规则」（**未做 §3 第 5 步时**） | 明确报错说读不到规则 —— ★ **这是本批的预期行为，不是新 bug** |
-| 9 | 点「同步规则」（**做完 §3 第 5 步后**） | 提示「已下发并确认生效」 |
-| 10 | 「同步 Prom」拉进来的规则 | 「来源」列显示 **Prom 纳管** |
-| 11 | 平台新建规则 → 同步规则 → 回读 | `curl -s http://<内网IP>:9090/api/v1/rules \| grep '"name":"<你的规则名>"'` 有输出 |
-| 12 | CMDB 服务器管理 → **下载导入模板** | **直接弹出下载** `.xlsx`（★ 不再提示「导入任务已创建」）；表头带 `*` 的**只有「主机名」「主管理IP」**（机房/环境/业务线不再标 `*`）；多出一页 **「填写说明」**，逐列写明是否必填与可选值 |
-| 13 | 导入一个必填项为空的 xlsx | **弹窗报错**（不再"点了没反应"），且提示里带后端给出的原因 |
-| 14 | 把**填好的**模板（只填主机名 + 主管理IP，机房/环境/业务线**不填**）上传导入 | **提示导入成功**并刷新列表；★ 不再报 `[Errno 2] No such file or directory` |
+| 1 | 左侧出现 **发布管理 → 流水线编排 / 执行记录** 两个菜单 | 菜单在、按钮在（新建/编辑/删除/设计流程都可点）。★ 缺了就回去跑 §3 第 3 步③ |
+| 2 | 新建一条流水线 → 点「设计流程」 | 能加 6 种节点（参数化 / 环境检查 / 上传制品 / 执行命令 / 构建 / 通知），能排序；保存后重开还在 |
+| 3 | 设计器里选「发布服务器」 | 候选来自 **CMDB 资产列表**（不是手输 IP） |
+| 4 | 执行记录 → 点「运行」→ 在运行面板反复点「推进」 | 节点逐个推进到成功；★ **前端不会在第 5 秒报超时**（`run/api.ts` 已显式 `timeout: 900000`） |
+| 5 | 运行面板 → 节点日志 | 每个节点的输出可见；命令节点在目标机上留痕 |
+| 6 | 堡垒机 → **命令审计** | `source` 列能筛出 **「流水线发布」** ⇒ 迁移 `bastion/0005` 生效的证据 |
+| 7 | 日志检索 → 选索引 → **选一个时间范围** → 查询 | ★ **不再报错**（本批修的：时间戳由「空格」归一化成 `T`；此前一选时间范围必 400） |
+| 8 | 日志检索 → 触发一次表单校验失败 | 错误提示是**完整中文**，不是 `节点:）` 这种乱码（本批修的 DRF 错误详情解析） |
 
 ### 4.3 链路层（可选，但强烈建议做一次）
 
@@ -737,6 +780,9 @@ Prometheus → Alertmanager → 平台 webhook(202) → Celery → 告警事件�
 ---
 
 ## 5. 预期行为变化（**别当成新 bug**）
+
+> 📎 本节各条**都是上一批（09-29：告警规则 / CMDB 导入）的行为变化**，保留备查。
+> 若你的环境只做本批（v1.1.0）改动，本节大多用不上。
 
 | 现象 | 为什么 | 怎么办 |
 |---|---|---|
