@@ -37,6 +37,10 @@ ITEM_STATUS_CHOICES = (
 COMMAND_SOURCE_CHOICES = (
     ("session", "交互会话"),
     ("dispatch", "命令下发"),
+    # 发布流水线的命令/检查节点（release/engine.py::_audit 写入）。
+    # ★ 接进这张表而不是另造一张：运维查"这台机器上谁干了什么"只会看
+    #   「命令审计」一个页面，发布命令散落在流水线自己的表里等于没有留痕。
+    ("release", "流水线发布"),
 )
 
 # 高危命令关键词（命令下发 + 交互会话共用，命中则标记 is_dangerous）

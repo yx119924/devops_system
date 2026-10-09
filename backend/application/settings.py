@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     "dvadmin.alert",
     "dvadmin.jenkins",
     "dvadmin.aiagent",
+    "dvadmin.release",
 ]
 
 MIDDLEWARE = [

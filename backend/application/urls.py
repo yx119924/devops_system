@@ -109,6 +109,7 @@ urlpatterns = (
     path("api/log/", include("dvadmin.log.urls")),
     path("api/alert/", include("dvadmin.alert.urls")),
     path("api/jenkins/", include("dvadmin.jenkins.urls")),
+    path("api/release/", include("dvadmin.release.urls")),
     path("api/aiagent/", include("dvadmin.aiagent.urls")),
             path("api/dashboard/stats/", dashboard_stats),
             path("api/login/", LoginView.as_view(), name="token_obtain_pair"),
