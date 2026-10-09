@@ -40,7 +40,7 @@ export default defineComponent({
 }
 :deep(.fs-crud-actionbar) {
   position: absolute;
-  top: 10px;
+  top: 16px /* 与搜索行自带按钮对齐：它们距 .fs-crud 顶部 16px（行内垂直居中）；原 10px 会高 6px */;
   right: 20px;
   z-index: 10;
   margin: 0;
