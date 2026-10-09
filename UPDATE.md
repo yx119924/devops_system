@@ -10,10 +10,10 @@
 | 项 | 值 |
 |---|---|
 | 版本 | **v1.1.0**（Release 附件 `xwops-images-v1.1.0.tar`） |
-| 功能基线提交 | **`d11565d`**（历史：v1.0.0 的功能基线是 `4b0a80e`） |
+| 功能基线提交 | **`40dec80`**（历史：v1.1.0 首发是 `d11565d`；v1.0.0 是 `4b0a80e`） |
 | 内容 | **新增「可视化发布流水线」** —— 新 app `dvadmin/release/`（4 张表 / 6 种节点 / 状态机）+ 前端编排与运行面板 + 菜单/按钮注册脚本；<br>修**日志检索**「一选时间范围就 400」（时间戳空格 → `T` 归一化）+ 前端显式超时 + ES 往返计时埋点；<br>修 **DRF 校验错误的中文提示被吃成乱码**（字符串值被当列表逐字符遍历） |
 | 日期 | 2026-10-09 |
-| 影响面 | **18 个后端文件**（含 **2 个新迁移**）+ **11 个前端文件** ⇒ **前端必须重建镜像**；<br>另需**跑一次菜单/按钮注册脚本**（§3 第 3 步③），否则新菜单不出现或按钮全没 |
+| 影响面 | **18 个后端文件**（含 **2 个新迁移**）+ **31 个前端文件** ⇒ **前端必须重建镜像**；<br>另需**跑一次菜单/按钮注册脚本**（§3 第 3 步③），否则新菜单不出现或按钮全没 |
 
 > ★ **换一批改动也能用这份文档**。通用步骤（§1 / §3 / §4 / §6 / §7）长期有效；
 > 只有「本批专属」的部分需要替换 —— **怎么替换见 §2.2**。
@@ -149,13 +149,13 @@ git -C <部署目录> fetch origin && git -C <部署目录> diff --name-only HEA
 
 ## 2. 这次要更新什么
 
-### 2.1 本批文件清单（**v1.1.0 / 2026-10-09** —— 31 个文件 = 29 代码 + 2 文档）
+### 2.1 本批文件清单（**v1.1.0 / 2026-10-09** —— 51 个文件 = 49 代码 + 2 文档）
 
 | 类别 | 文件 | 需要的动作 |
 |---|---|---|
 | **后端源码·新增模块** | `backend/dvadmin/release/`（10 个文件：`__init__.py`、`apps.py`、`models.py`、`engine.py`、`ssh_sftp.py`、`urls.py`、`views/__init__.py`、`views/pipeline.py`、`migrations/__init__.py`、`migrations/0001_initial.py`）<br>`backend/register_release.py`（菜单/按钮注册脚本）<br>`backend/verify_release.py`（离线门禁） | 拷进 `<部署目录>/backend/` → **跑迁移** → **跑一次注册脚本**（§3 第 3 步③）→ 重启 django + celery |
 | **后端源码·改动** | `backend/application/settings.py`（注册新 app）<br>`backend/application/urls.py`（挂 `/api/release/`）<br>`backend/dvadmin/bastion/models.py`（`CommandLog.source` 加 `release` 取值）<br>`backend/dvadmin/bastion/migrations/0005_alter_commandlog_source.py`<br>`backend/dvadmin/log/views/source.py`（时间戳归一化 + ES 计时埋点）<br>`backend/dvadmin/utils/exception.py`（DRF 错误详情解析） | 同上（`bastion` **也要跑迁移**） |
-| **前端源码** | `web/src/views/release/`（10 个文件：`pipeline/` 6 个 + `run/` 4 个）<br>`web/src/views/log/search/api.ts`（显式 `timeout`） | **必须重建 web 镜像**（§3 第 4 步） |
+| **前端源码** | `web/src/views/release/`（10 个文件：`pipeline/` 6 个 + `run/` 4 个）<br>`web/src/views/log/search/api.ts`（显式 `timeout`）<br>`web/src/views/**/index.vue`（**20 个 list 页**：操作栏 `top` 统一为 `16px`；告警规则页预留宽度 200→320px） | **必须重建 web 镜像**（§3 第 4 步） |
 | **工程杂项** | `CHANGELOG.md`、`UPDATE.md`（**本文档**） | 无动作（随仓库一起更新即可） |
 
 > ★ 本批**没有**改 `requirements.txt` ⇒ **django / celery 镜像不用重建**，只重启容器即可。
@@ -332,12 +332,12 @@ git apply /tmp/xwops_update/0001-*.patch
 
 ```bash
 # ① 功能基线提交到位了吗
-#   ★ 只认 d11565d 这一个 hash（v1.1.0 的功能基线）—— 别写成「最新提交」，
+#   ★ 只认 40dec80 这一个 hash（v1.1.0 的功能基线）—— 别写成「最新提交」，
 #     因为本批之后还会陆续有「纯文档提交」，那样写每提交一次文档就过期一次。
-#     历史：v1.0.0 的功能基线是 4b0a80e。
-git merge-base --is-ancestor d11565d HEAD && echo "功能基线已到位"
-git log --oneline --grep="中文提示被吃成乱码" -1
-# 期望：d11565d fix(utils): DRF 校验错误的中文提示被吃成乱码 —— 字符串值不该当列表遍历
+#     历史：v1.1.0 首发是 d11565d；v1.0.0 是 4b0a80e。
+git merge-base --is-ancestor 40dec80 HEAD && echo "功能基线已到位"
+git log --oneline --grep="全站统一" -1
+# 期望：40dec80 fix(web): 全站统一 —— CRUD 页操作栏的 top 由 10px 改为 16px（与搜索行按钮对齐）
 ```
 
 ```bash
@@ -389,14 +389,17 @@ a638f4b370c528c7cb59a9a4bea26ac5  backend/verify_release.py
 > `file <该文件>` —— 报 `CRLF` 就是历史遗留的行尾，`rm <该文件> && git checkout -- <该文件>`
 > 让它按 `.gitattributes` 重新检出即可，**别去改文档**。
 >
-> ★ **只认 `d11565d` 这一个 hash（v1.1.0 的功能基线）—— 所有影响运行时的改动都在它里面。**
+> ★ **只认 `40dec80` 这一个 hash（v1.1.0 的功能基线）—— 所有影响运行时的改动都在它里面。**
 > 它之后可能还有若干个**纯文档提交**（只动 `*.md`、`*.gitignore`），**不影响功能**。所以：
 > - `merge-base` 返回 0（该提交是 HEAD 的祖先）⇒ 功能代码已到位；
-> - 通道 B 打补丁时**要打到 `d11565d`** —— 本批的功能改动分布在 3 个提交里：
->   `2d30bc8`（日志检索修复）→ `fe08591`（可视化流水线）→ `d11565d`（DRF 错误解析）。
->   只打到 `2d30bc8` 会缺掉整条发布流水线，只到 `fe08591` 会缺 DRF 错误提示修复；
+> - 通道 B 打补丁时**要打到 `40dec80`** —— 本批的功能改动分布在 6 个提交里：
+>   `2d30bc8`（日志检索修复）→ `fe08591`（可视化流水线）→ `d11565d`（DRF 错误解析）→
+>   `130635e`（操作栏预留 200→320）→ `5004750`（操作栏 top 10→16）→
+>   `40dec80`（全站 20 个 list 页 top 统一）。
+>   只打到 `d11565d` 会缺三处前端修复：`130635e`/`5004750` 只影响告警规则页，
+>   `40dec80` 影响 19 个页面；
 > - **md5 对不上 ⇒ 代码没到位，别往下走。**
-> - 历史：v1.0.0 的功能基线是 `4b0a80e`（其祖先含 `1d8db6b`、`2eeea68`、`5bfc62d`）。
+> - 历史：v1.1.0 首发的功能基线是 `d11565d`；v1.0.0 是 `4b0a80e`（其祖先含 `1d8db6b`、`2eeea68`、`5bfc62d`）。
 
 ### 第 2 步 · 后端源码就位（`.py` 是挂载的，拷进去即生效）
 
@@ -768,6 +771,7 @@ curl -s -o /dev/null -w 'api=%{http_code}\n'  http://127.0.0.1:8080/api/api/
 | 6 | 堡垒机 → **命令审计** | `source` 列能筛出 **「流水线发布」** ⇒ 迁移 `bastion/0005` 生效的证据 |
 | 7 | 日志检索 → 选索引 → **选一个时间范围** → 查询 | ★ **不再报错**（本批修的：时间戳由「空格」归一化成 `T`；此前一选时间范围必 400） |
 | 8 | 日志检索 → 触发一次表单校验失败 | 错误提示是**完整中文**，不是 `节点:）` 这种乱码（本批修的 DRF 错误详情解析） |
+| 9 | **任意 list 页**（如 CMDB-服务器、告警规则）→ 看右上角操作栏 | 操作栏按钮与搜索行自带的「查询/重置」**在同一水平线上**、且**不重叠**（本批统一 `top:16px`；告警规则页另把预留宽度 200→320px） |
 
 ### 4.3 链路层（可选，但强烈建议做一次）
 

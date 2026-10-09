@@ -23,16 +23,23 @@
 | 项目 | 值 |
 |---|---|
 | 打包文件 | `xwops-images-v1.1.0.tar` |
-| 文件大小 | 514,616,320 字节（490.8 MB） |
-| MD5 | `5ded8583a699081bd3cae6e6bef248d8` |
-| SHA256 | `b77ba1467aa341b7c5833c88c2f3d0c35c0d1553c25a8c5583ca81bae1eb5503` |
+| 文件大小 | 514,614,784 字节（490.8 MB） |
+| MD5 | `df7f80d860f763d16d638808e21977dc` |
+| SHA256 | `be7c79a3d385fa3e9f504d6c41908240cda2598b6d4360b730af8e27ec9c6b5f` |
 | 下载地址 | <https://github.com/yx119924/devops_system/releases/download/v1.1.0/xwops-images-v1.1.0.tar> |
 | 内含镜像 | 上表 5 个（django/celery 共享层只存一份，所以并非简单相加） |
 
-> ⚠️ **v1.1.0 只换了一个镜像**：`xwops/web` 用本版前端源码重建
-> （新增「可视化发布流水线」页面 + 日志检索页显式超时）。
+> ⚠️ **v1.1.0 已于 2026-10-09 重新发行（第二次出包）**：合入三处前端修复 ——
+> ① 告警规则页操作栏与「查询/重置」**重叠**（预留宽度 200→320px）；
+> ② 操作栏与搜索行按钮**差 6px 不对齐**（`top` 10→16px）；
+> ③ 全站 **20 个 list 页**的 `top` 统一为 16px。
+> 因此 `xwops/web` 被重建，**源码与 tag `v1.1.0` 也已同步前移**。
+> 若你下载过 17:37 之前的包，**请重新下载**（源码与镜像必须配对）。
 > `django` / `celery` / `mysql` / `redis` **内容与 v1.0.0 完全相同**
-> （本批 `backend/requirements.txt` 无改动，所以 django / celery 镜像层一字未变）。
+> （本批 `backend/requirements.txt` 无改动）。
+>
+> ★ 本 Release 另附 **`xwops-web-1.1.0.tar`**（31,110,144 字节，MD5 `997b1446abf2b2b6394b22fcbb7f695f`）：
+> 只更新前端时用它更快，对应 `UPDATE.md` §3 第 4 步的 web-only 流程。
 >
 > ★ **镜像内部 tag 仍是 `xwops/*:1.0.0`** —— 与仓库 `docker-compose.yml` 里写的一致
 > ⇒ `docker load` 是**原地替换**，**`docker-compose.yml` 一行都不用改**。
