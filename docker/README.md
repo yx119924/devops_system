@@ -22,18 +22,24 @@
 
 | 项目 | 值 |
 |---|---|
-| 打包文件 | `xwops-images-v1.0.0.tar` |
-| 文件大小 | 514,598,912 字节（490.8 MB） |
-| MD5 | `3bc78c4191306387f4016c1ad3765ef5` |
-| SHA256 | `b79d75e0b3e12c7364c725cd6edad26ba334b85271c472facaaa0c8c69230f61` |
-| 下载地址 | <https://github.com/yx119924/devops_system/releases/download/v1.0.0/xwops-images-v1.0.0.tar> |
+| 打包文件 | `xwops-images-v1.1.0.tar` |
+| 文件大小 | 514,616,320 字节（490.8 MB） |
+| MD5 | `5ded8583a699081bd3cae6e6bef248d8` |
+| SHA256 | `b77ba1467aa341b7c5833c88c2f3d0c35c0d1553c25a8c5583ca81bae1eb5503` |
+| 下载地址 | <https://github.com/yx119924/devops_system/releases/download/v1.1.0/xwops-images-v1.1.0.tar> |
 | 内含镜像 | 上表 5 个（django/celery 共享层只存一份，所以并非简单相加） |
 
-> ⚠️ **本包已于 2026-09-29 重新导出**（v1.0.0 重新发行）。
-> 重新导出是因为 `xwops/web:1.0.0` 需要用**合入加固集后的前端源码**重建 ——
-> 加固后的后端不再下发通知渠道敏感字段，沿用旧前端会让渠道页字段异常。
-> **源码与镜像包必须配对使用**，别拿 09-28 的源码配 09-29 的镜像（或反之）。
-> 其余 4 个镜像（django / celery / mysql / redis）内容未变。
+> ⚠️ **v1.1.0 只换了一个镜像**：`xwops/web` 用本版前端源码重建
+> （新增「可视化发布流水线」页面 + 日志检索页显式超时）。
+> `django` / `celery` / `mysql` / `redis` **内容与 v1.0.0 完全相同**
+> （本批 `backend/requirements.txt` 无改动，所以 django / celery 镜像层一字未变）。
+>
+> ★ **镜像内部 tag 仍是 `xwops/*:1.0.0`** —— 与仓库 `docker-compose.yml` 里写的一致
+> ⇒ `docker load` 是**原地替换**，**`docker-compose.yml` 一行都不用改**。
+> 版本号「v1.1.0」只体现在**附件文件名**上。
+>
+> ⚠️ **源码与镜像包必须配对**：本版前端有改动，请把「源码」与「本镜像包」一起取，
+> 别拿 v1.0.0 的镜像去配 v1.1.0 的源码（或反之）。
 
 > ⚠️ **`django` / `celery` 镜像里没有业务代码**，这是 DVAdmin 的既有设计：
 > 代码通过 `docker-compose.yml` 的 `./backend:/backend` 挂载进容器。
@@ -43,16 +49,16 @@
 
 ## 一、下载镜像包
 
-从本仓库 **Releases** 页面下载 → <https://github.com/yx119924/devops_system/releases>
+从本仓库 **Releases** 页面下载 → <https://github.com/yx119924/devops_system/releases/tag/v1.1.0>
 
 在**仓库根目录**下一条命令直接下载到位：
 
 ```bash
-curl -L --retry 3 -o docker/xwops-images-v1.0.0.tar \
-  https://github.com/yx119924/devops_system/releases/download/v1.0.0/xwops-images-v1.0.0.tar
+curl -L --retry 3 -o docker/xwops-images-v1.1.0.tar \
+  https://github.com/yx119924/devops_system/releases/download/v1.1.0/xwops-images-v1.1.0.tar
 ```
 
-得到的目标位置：`docker/xwops-images-v1.0.0.tar`
+得到的目标位置：`docker/xwops-images-v1.1.0.tar`
 
 ## 二、校验完整性（**必做**）
 
@@ -61,7 +67,7 @@ curl -L --retry 3 -o docker/xwops-images-v1.0.0.tar \
 ```bash
 cd docker
 md5sum -c checksums.txt
-# 期望输出：xwops-images-v1.0.0.tar: OK
+# 期望输出：xwops-images-v1.1.0.tar: OK
 ```
 
 ## 三、加载镜像（**一键**）
@@ -73,7 +79,7 @@ bash docker/load-images.sh
 或手动等价执行：
 
 ```bash
-docker load -i docker/xwops-images-v1.0.0.tar
+docker load -i docker/xwops-images-v1.1.0.tar
 ```
 
 加载完成后确认 5 个镜像都在：
