@@ -58,7 +58,13 @@ export default defineComponent({
 }
 :deep(.fs-crud-actionbar) {
   position: absolute;
-  top: 10px;
+  /* ★ top 必须让操作栏与「搜索行自带的按钮（查询/重置）」站在同一条水平线上。
+     F12 实测（2026-10-09，告警规则页，视口宽 ~1918）：
+       查询 / 重置              y = 113.0  h = 32
+       添加 / 同步 Prom / 同步规则  y = 107.0  h = 32   ← 原 top:10px 的结果，高了 6px
+     即：搜索按钮在行内「垂直居中」，距 .fs-crud 顶部 16px；而 top:10px 对齐的是行「顶部」。
+     ⇒ 改成 16px，两组 y 都是 113，水平线一致。 */
+  top: 16px;
   right: 20px;
   z-index: 10;
   margin: 0;
