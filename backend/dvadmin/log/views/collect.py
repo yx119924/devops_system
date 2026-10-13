@@ -181,9 +181,13 @@ class LogCollectTaskSerializer(CustomModelSerializer):
             raise serializers.ValidationError({'time_layout': '填了时间提取正则就必须填时间格式'})
         if t_layout and not t_regex:
             raise serializers.ValidationError({'time_regex': '填了时间格式就必须填时间提取正则'})
-        if t_regex and 'log_time' not in t_regex:
-            raise serializers.ValidationError(
-                {'time_regex': '正则里必须含命名组 (?P<log_time>...)，否则提取不到时间'})
+        if t_regex:
+            # ★ 2026-10-13 加：时间提取走 script processor（JS 引擎）。
+            #   翻译不了的 pattern（如含 (?i)）会让生成的 JS 语法错误 ⇒ 片段加载失败
+            #   ⇒ 该任务零采集。所以在**保存时**就拒绝，而不是等下发后看 filebeat 报错。
+            ok, msg = collector.check_time_regex_translatable(t_regex, t_layout)
+            if not ok:
+                raise serializers.ValidationError({'time_regex': msg})
         if t_layout:
             attrs['time_layout'] = t_layout
 

@@ -76,7 +76,14 @@ _RE2_UNSUPPORTED = (
     (re.compile(r"\(\?P="), "命名组反向引用 (?P=name)"),
     (re.compile(r"\(\?>"), "原子组 (?>...)"),
     (re.compile(r"\(\?R\)"), "递归 (?R)"),
-    (re.compile(r"\(\?[aiLmsux-]+:"), "内联 flag 组 (?i:...)（应写成 (?i) 前缀）"),
+    (re.compile(r"\(\?[aiLmsux-]+:"), "内联 flag 组 (?i:...)"),
+    # ★ 2026-10-13 加：内联 flag 的**前缀形式** `(?i)` / `(?im)` / `(?-i)`。
+    #   原来只拦带冒号的 `(?i:...)`，而前缀形式以前没人用 -> 现在必须拦：
+    #   时间提取改走 script processor（JS），JS 正则**没有内联 flag 语法**，
+    #   放过去会让生成的 JS 语法错误 -> 片段加载失败 -> 该任务零采集。
+    #   `(?![P<:])` 是为了放行 `(?P<name>...)`（命名组）与 `(?:...)`（非捕获组），
+    #   这两者在 JS 里都是合法写法。
+    (re.compile(r"\(\?(?![P<:])"), "内联 flag（如 (?i)）"),
     (re.compile(r"\\K"), "\\K"),
 )
 
@@ -109,6 +116,142 @@ def check_re2_compatible(pattern):
         re.compile(pattern)
     except re.error as exc:
         return False, "正则语法错误：%s" % exc
+    return True, ""
+
+
+# ===========================================================================
+# 时间提取正则 → JS（走 script processor）
+# ===========================================================================
+# ★★★ 为什么有这一段（2026-10-13 真机事故，改回 `regex` 前先读完）
+#
+#   平台原先生成的是 `- regex:` —— 而 **`regex` 不是 filebeat 的 processor action**。
+#   filebeat 7.17.29 自己打印的 40 个合法 action 里没有它，后果是：
+#
+#       ERROR [reload] cfgfile/list.go:108
+#       Error creating runner from config: the processor action regex does not exist.
+#
+#   ⇒ **片段加载失败、harvester 起不来、该任务一条日志都采不到**，
+#     而平台侧「下发」报的是"成功" —— 因为两道校验都只做**语法**：
+#        · 平台侧 validate_fragment_shape：只查"是数组、有 type"
+#        · 目标机 filebeat test config：只查 YAML 语法
+#     action 是否存在，要等**创建 runner** 时才校验（就是上面那行日志）。
+#     这正是本项目最怕的「三边全绿、一条数据都没有」。
+#
+#   filebeat 里唯一能跑**真正则**的 processor 是 `script`（内置 JS 引擎）。
+#   它的代价：JS 不支持 `(?P<name>...)` 语法 ⇒ 必须翻成普通捕获组 + **组号**取值。
+#   于是本模块负责这次翻译，并且**在保存/下发前就校验能否翻译**，
+#   宁可拒绝，也不生成一段 filebeat 加载不了的 `source`。
+
+_NAMED_GROUP_START = re.compile(r"\(\?P<([A-Za-z_]\w*)>")
+
+
+def _js_str(text):
+    """把文本包成 JS 双引号字符串字面量。
+
+    ★ 转义顺序不能反：先把每个 ``\\`` 变成 ``\\\\``，再转义 ``"``。
+      用户填的 ``\\d`` 在 JS 字符串里必须写成 ``\\\\d``，否则 JS 先把反斜杠吃掉，
+      ``new RegExp(...)`` 拿到的就不是 ``\\d`` 而是一个孤零零的 ``d``。
+    """
+    return '"' + str(text).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def js_regex_and_group(pattern, wanted="log_time"):
+    """把带 ``(?P<wanted>...)`` 的正则翻成 JS 等价正则，并返回该组的**捕获序号**。
+
+    返回 ``(js_pattern, group_no)``；``pattern`` 为空、或里面没有 ``(?P<wanted>...)``
+    时返回 ``(None, 0)``。
+
+    ★ 为什么组号要**算**而不是写死 1：
+      用户的正则里可能先出现别的捕获组，例如
+      ``^(\\w+)\\s+\\[?(?P<log_time>...)`` —— 此时 log_time 是第 2 组。
+      写死 ``m[1]`` 就会把 ``\\w+`` 匹配到的内容当成时间，生成出来的 JS
+      **语法合法、行为错误**（时间字段永远是错的），比加载失败更难查。
+
+    ★ 扫描规则（对齐 JS 的 RegExp 语义）：
+      · 反斜杠转义的两个字符原样跳过（``\\(`` 不是分组）
+      · 字符类 ``[...]`` 内部不计数（``[(]`` 不是分组）
+      · ``(?:`` 是**非捕获组**，不占组号，JS 同样支持 ⇒ 原样保留
+      · ``(?P<name>`` 占一个组号，输出普通捕获组 ``(``
+      · 其余 ``(?...``（内联 flag 等）JS 不支持 ⇒ 返回失败，交由调用方拒绝
+      · 普通 ``(`` 占一个组号
+    """
+    p = (pattern or "").strip()
+    if not p or ("(?P<%s>" % wanted) not in p:
+        return None, 0
+
+    out = []
+    group_no = 0
+    target = 0
+    i, n = 0, len(p)
+    in_class = False
+    while i < n:
+        ch = p[i]
+        if ch == "\\":                      # 转义序列：整体搬运，避免把 \( 当成分组
+            out.append(p[i:i + 2])
+            i += 2
+            continue
+        if in_class:
+            if ch == "]":
+                in_class = False
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "[":
+            in_class = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "(":
+            m = _NAMED_GROUP_START.match(p, i)
+            if m:
+                group_no += 1
+                if m.group(1) == wanted:
+                    target = group_no
+                out.append("(")             # 命名组 → 普通捕获组
+                i = m.end()
+                continue
+            if p.startswith("(?:", i):
+                out.append("(?:")
+                i += 3
+                continue
+            if p.startswith("(?", i):
+                # 内联 flag 等 JS 不支持的构造。check_re2_compatible 已在保存时拦，
+                # 走到这里说明有人绕过校验 —— 返回失败，绝不生成 JS 语法错的 source。
+                return None, 0
+            group_no += 1
+            out.append("(")
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+
+    if not target:
+        return None, 0
+    return "".join(out), target
+
+
+def check_time_regex_translatable(pattern, layout=""):
+    """时间提取正则能否翻成 filebeat 的 JS 正则。返回 ``(ok, reason)``。
+
+    ★ 为什么单独做一道闸：翻译失败时如果只是"悄悄不生成那段 processor"，
+      用户会以为时间提取配好了、实际没生效 —— 又一种静默失败。
+      所以**保存时就拒绝**，并说清怎么改。
+    """
+    p = (pattern or "").strip()
+    if not p:
+        return True, ""
+    if not (layout or "").strip():
+        return False, "填了「时间提取正则」就必须填「时间格式」，否则 @timestamp 不会被改写"
+    js_p, group = js_regex_and_group(p)
+    if not js_p:
+        if "(?P<log_time>" not in p:
+            return False, ("时间提取正则必须含命名组 (?P<log_time>...)，否则取不到时间")
+        return False, (
+            "时间提取正则无法翻译成 filebeat 的 JS 正则（时间提取走 script processor，"
+            "引擎是 JS，不支持 (?i) 这类内联 flag 与非捕获以外的 (?...) 构造）。"
+            "请只用普通分组、字符类、量词、^ $ 与 (?P<log_time>...) 命名组。")
+    if group < 1:
+        return False, "时间提取正则里没有可用的捕获组"
     return True, ""
 
 
@@ -301,8 +444,13 @@ def validate_task(task):
         errors.append("填了「时间提取正则」就必须填「时间格式」，否则 @timestamp 不会被改写")
     if t_layout and not t_regex:
         errors.append("填了「时间格式」就必须填「时间提取正则」")
-    if t_regex and "log_time" not in t_regex:
-        errors.append("时间提取正则必须包含命名组 (?P<log_time>...)，否则取不到时间")
+    if t_regex:
+        # ★ 2026-10-13 加：还要能翻成 **JS 正则**（时间提取现在走 script processor）。
+        #   翻不了就不生成 —— 与其生成一段 filebeat 加载不了的 source、让整个片段
+        #   加载失败（该任务零采集），不如在保存/下发前就说清怎么改。
+        ok, msg = check_time_regex_translatable(t_regex, t_layout)
+        if not ok:
+            errors.append(msg)
 
     if not (task.targets or []):
         errors.append("至少需要选择一台目标服务器")
@@ -402,6 +550,89 @@ def validate_fragment_shape(content):
     return True, ""
 
 
+# ---- 生成端 processor action 语义闸 -----------------------------------------
+# ★★★ 这张表和这个校验，都是 2026-10-13 真机事故换来的（别再删）
+#
+#   事故：平台生成 `- regex:`，而 **filebeat 没有 `regex` 这个 action** ⇒
+#         ERROR [reload] cfgfile/list.go:108
+#         Error creating runner from config: the processor action regex does not exist.
+#   ⇒ 片段加载失败、该任务零采集，**而平台侧报"下发成功"**。
+#
+#   ★ 为什么原来两道校验都拦不住 —— 它们都只查**语法**，不查**语义**：
+#       ① 平台侧 validate_fragment_shape：只查"是数组、每项有 type" → 放行
+#       ② 目标机 filebeat test config：只查 YAML 语法、output 在不在 → 放行
+#     action 是否存在，要等 filebeat **创建 runner** 时才校验 —— 那已经是
+#     「片段替换完成、现场已被改动」之后了。
+#   ⇒ 所以在**生成端**补这一道：平台自己产出的 action 必须在下表内，
+#     否则**在下发前**就拒绝，目标机一个字都不动。
+#
+#   表内每一项都在 filebeat 7.17.29 的合法清单里确认过。
+#   清单来源 = **filebeat 自己打印的**（报错时列出 Valid actions），
+#   取证与复现见 .work/verify_regex_processor/（含 4 次打印的集合一致性校验）。
+#   ★ 换 filebeat 大版本 / 新增 processor 时，**重新采集一次真机清单**再改这张表。
+SAFE_PROCESSOR_ACTIONS = frozenset({
+    "drop_event",       # 排除规则 / 包含规则 / 最低级别
+    "script",           # 时间提取（JS 正则，见 js_regex_and_group）
+    "timestamp",        # log_time → @timestamp
+    "drop_fields",      # 清理中间字段 log_time
+    "add_fields",       # 逐台补 server_ip
+})
+
+
+def processor_actions_of(content):
+    """解析片段，按出现顺序返回 `processors:` 里用到的 action 名。
+
+    返回 ``(actions, "")`` 或 ``(None, 原因)``。
+
+    ★ 必须**按 YAML 结构**解析，不能 grep ``- xxx:``：
+      `drop_event` 的 when 条件内部同样是列表项（``- regexp:`` / ``- or:``），
+      grep 会把条件关键字误当成 action，造成假阳性 —— 而假阳性会让人
+      "顺手放宽规则"，最后真阳性也放过去了。
+    """
+    try:
+        import yaml
+    except Exception as exc:                                     # noqa: BLE001
+        return None, "平台侧没有可用的 YAML 解析器（%s）" % exc
+    try:
+        doc = yaml.safe_load(content)
+    except Exception as exc:                                     # noqa: BLE001
+        return None, "配置片段不是合法 YAML：%s" % exc
+    if not isinstance(doc, list):
+        return None, "配置片段不是输入列表"
+    actions = []
+    for item in doc:
+        if not isinstance(item, dict):
+            continue
+        procs = item.get("processors") or []
+        if not isinstance(procs, list):
+            return None, "processors 不是列表"
+        for proc in procs:
+            if isinstance(proc, dict):
+                actions.extend(str(k) for k in proc.keys())
+    return actions, ""
+
+
+def validate_processor_actions(content):
+    """校验片段用到的 processor action 是否都被 filebeat 认识。返回 ``(ok, 原因)``。
+
+    ★ 解析器不可用时**返回失败并说明原因**，绝不静默放行 ——
+      一个"因为没检查所以通过"的门禁，比没有门禁更危险（同 validate_fragment_shape）。
+    """
+    actions, err = processor_actions_of(content)
+    if actions is None:
+        return False, ("无法校验 processor action（%s），宁可不发，也不发一个"
+                       "action 未经核实的片段" % err)
+    bad = sorted({a for a in actions if a not in SAFE_PROCESSOR_ACTIONS})
+    if bad:
+        return False, (
+            "配置片段用了 filebeat 不认识的 processor action：%s。"
+            "filebeat 会在**加载片段**时报「the processor action %s does not exist」，"
+            "片段加载失败 ⇒ 该任务**一条日志都采不到**，而平台侧看不出异常"
+            "（它只查语法，不查 action 是否存在）。"
+            % ("、".join(bad), bad[0]))
+    return True, ""
+
+
 def dropped_level_condition(task):
     """生成"丢弃低于 min_level 的日志"条件块（RE2 安全写法）。
 
@@ -457,11 +688,25 @@ def build_processors(task, server_ip, base=6):
 
     # ④ 时间提取：把日志正文时间写进 @timestamp
     #    （内网现网踩过的坑：@timestamp 记成采集时刻 → 时间范围检索全乱）
-    if (task.time_regex or "").strip() and (task.time_layout or "").strip():
+    #
+    #    ★★★ 这里是 `script` 而**不是** `regex`（2026-10-13 真机事故，别改回去）
+    #    filebeat 没有 `regex` 这个 processor action。用它之后：
+    #        ERROR [reload] cfgfile/list.go:108
+    #        Error creating runner from config: the processor action regex does not exist.
+    #    片段加载失败 ⇒ 该任务一条日志都采不到，而平台侧报的是"下发成功"。
+    #    为什么只有 script 能顶上、以及 (?P<name>) 为什么要翻译，见 `js_regex_and_group` 上方注释。
+    #    `ignore_failure: true` 保留原语义：提取不到时间时不影响采集，只是 @timestamp 用采集时刻。
+    js_pattern, js_group = js_regex_and_group(task.time_regex or "")
+    if js_pattern and (task.time_layout or "").strip():
         blocks.append("\n".join([
-            "      - regex:",
-            "          field: message",
-            "          pattern: %s" % yaml_sq(task.time_regex.strip()),
+            "      - script:",
+            "          lang: javascript",
+            "          tag: xwops-extract-time",
+            "          source: >-",
+            "            function process(event) {",
+            "              var m = new RegExp(%s).exec(event.Get(\"message\"));" % _js_str(js_pattern),
+            "              if (m) { event.Put(\"log_time\", m[%d]); }" % js_group,
+            "            }",
             "          ignore_failure: true",
             "      - timestamp:",
             "          field: log_time",
@@ -985,6 +1230,20 @@ def apply_config(task, server, credential):
                 "detail": content,
                 "server": server.hostname, "ip": server.ip,
                 "shape_invalid": True}
+
+    # ★★ 生成端第二道闸：**语义** —— action 是否被 filebeat 认识。
+    #    形状对 ≠ filebeat 认。2026-10-13 的事故正是"形状全对、action 不存在"：
+    #    filebeat 创建 runner 时报 `the processor action regex does not exist`，
+    #    片段加载失败 ⇒ 该任务零采集，而平台侧报的是"下发成功"。
+    #    ⇒ 在**动目标机之前**拦住，并把"为什么"讲清楚。
+    act_ok, act_msg = validate_processor_actions(content)
+    if not act_ok:
+        return {"ok": False,
+                "message": "生成的配置片段未通过 processor 语义校验，**已中止下发**（目标机未被改动）：%s"
+                           % act_msg,
+                "detail": content,
+                "server": server.hostname, "ip": server.ip,
+                "action_invalid": True}
 
     b64 = base64.b64encode(content.encode("utf-8")).decode("ascii")
     ts = time.strftime("%Y%m%d%H%M%S")
