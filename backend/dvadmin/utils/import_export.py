@@ -116,7 +116,16 @@ def import_to_data(file_url, field_data, m2m_fields=None):
     workbook = openpyxl.load_workbook(file_path_dir)
     table = workbook[workbook.sheetnames[0]]
     theader = tuple(table.values)[0] #Excel的表头
-    is_update = '更新主键(勿改)' in theader #是否导入更新
+    # ★★ 2026-10-13 修「批量更新被判成新建 ⇒ 整列左移」：
+    #   表头那格由 `import_export_mixin.py` 的 `_("Update primary key (do not modify)")`
+    #   生成，译文写在 locale/zh_Hans/LC_MESSAGES/django.po。但 gettext 运行时**只读 .mo**，
+    #   而本项目部署链路没有任何 compilemessages ⇒ 没有 .mo ⇒ 翻译不生效
+    #   ⇒ 模板表头实际是**英文原文**。原判据写死中文 ⇒ 恒为 False
+    #   ⇒ 走下面 pop('id') 分支；可「批量更新模板」的 B 列确实是 id
+    #   ⇒ 字段序列整体左移一列（机房列 → environment、环境列 → business_line …）。
+    #   ⇒ 兼容中英两种表头；再用「表头列数 > 字段数」兜底（与语言无关，防将来再改文案）。
+    _pk_header_candidates = ('更新主键(勿改)', 'Update primary key (do not modify)')
+    is_update = any(h in theader for h in _pk_header_candidates) or len(theader) > len(field_data)
     if is_update is False: #不是更新时,删除id列
         field_data.pop('id')
     # 获取参数映射

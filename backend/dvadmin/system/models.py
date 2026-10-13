@@ -503,9 +503,20 @@ class FileList(CoreModel):
             self.md5sum = md5.hexdigest()
         if not self.size:
             self.size = self.url.size
-        if not self.file_url:
-            url = media_file_name(self, self.name)
-            self.file_url = f'media/{url}'
+        # ★★ 2026-10-13 修「库里记的名字 ≠ 磁盘上的真实名字」：
+        #   原实现在 super().save() **之前**调用 media_file_name() 预生成路径写进 file_url，
+        #   而 Django 随后会在 pre_save 里**再调一次** media_file_name() 拿真正落盘名。
+        #   该函数用 `int(time.time() * 1000)` 做后缀，两次调用只要跨过毫秒边界就会得到
+        #   **两个不同的名字**（线上实测：记录名 ..._1791870927084 / 落盘名 ..._1791870927085）。
+        #   ⇒ 任何"上传后按 file_url 回读"的功能都会**随机**找不到文件，
+        #     现象是「隔一会儿就不行、刷新重传又好了」（下次刚好落在同一毫秒）。
+        #   ⇒ 改成：先落盘，再把 storage 实际采用的名字回填。
+        #     Oss/Cos 分支已自带 file_url，用 `not self.file_url` 保护，行为不变。
+        if not self.file_url and self.url:
+            super(FileList, self).save(*args, **kwargs)
+            self.file_url = f'media/{self.url.name}'
+            FileList.objects.filter(pk=self.pk).update(file_url=self.file_url)
+            return
         super(FileList, self).save(*args, **kwargs)
 
     class Meta:

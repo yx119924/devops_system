@@ -72,11 +72,44 @@ class ServerSerializer(CustomModelSerializer):
         read_only_fields = ["id"]
 
 
+class NameReadablePkField(serializers.PrimaryKeyRelatedField):
+    """导入链路专用的外键字段：**校验收主键 id、序列化回显名称**。
+
+    为什么必须这样（2026-10-13 修）：
+      `utils/import_export.py` 的 `import_to_data()` 在把行数据交给序列化器**之前**，
+      已经用 `choices.queryset.values(values_name, 'id')` 建好 `{名称: 主键}` 映射，
+      并把单元格值替换成了**主键 id**（见该文件「获取参数映射」段、
+      `array[key] = validation_data_dict.get(key, {}).get(cell_value, None)`）。
+      ⇒ 校验必须走 PK 语义。原先用 `SlugRelatedField(slug_field='name')` 收名称，
+        就会拿 `1` 去 `filter(name=1)`，报「机房:属性 name 为 1 的对象不存在。」。
+      ⇒ 而「批量更新模板」是本序列化器的 `to_representation` 渲染给人看的，
+        直接输出 `1` 用户看不懂，所以这里覆盖输出、回显名称。
+
+    对照：`system/views/user.py` 的 `UserProfileImportSerializer` 完全不覆盖外键字段
+    （用 ModelSerializer 默认生成的 PK 字段）—— 那才是与本导入链路匹配的写法。
+    """
+
+    def __init__(self, slug_field='name', **kwargs):
+        self.slug_field = slug_field
+        super().__init__(**kwargs)
+
+    def use_pk_only_optimization(self):
+        # ★ 必须关掉 DRF 的「只取 pk」优化：开启时 get_attribute() 返回的是
+        #   PKOnlyObject(pk=1)（一个**只有 pk 属性**的假对象），
+        #   下面的 to_representation 就取不到 .name ⇒ 模板回显会变成 None。
+        return False
+
+    def to_representation(self, value):
+        if value is None:
+            return None
+        return getattr(value, self.slug_field, None)
+
+
 class ImportServerSerializer(CustomModelSerializer):
-    """Excel导入-序列化器：外键按名称匹配（slug_field='name'）"""
-    idc = serializers.SlugRelatedField(slug_field='name', queryset=Idc.objects.all(), required=False, allow_null=True)
-    environment = serializers.SlugRelatedField(slug_field='name', queryset=Environment.objects.all(), required=False, allow_null=True)
-    business_line = serializers.SlugRelatedField(slug_field='name', queryset=BusinessLine.objects.all(), required=False, allow_null=True)
+    """Excel导入-序列化器：外键「收 id / 回显名称」，详见 NameReadablePkField"""
+    idc = NameReadablePkField(slug_field='name', queryset=Idc.objects.all(), required=False, allow_null=True)
+    environment = NameReadablePkField(slug_field='name', queryset=Environment.objects.all(), required=False, allow_null=True)
+    business_line = NameReadablePkField(slug_field='name', queryset=BusinessLine.objects.all(), required=False, allow_null=True)
 
     class Meta:
         model = Server
@@ -113,13 +146,18 @@ class ServerViewSet(CustomModelViewSet):
 
     # Excel 导入
     import_serializer_class = ImportServerSerializer
+    # ★ 2026-10-13：dict 形式（外键/枚举）的字段**必须**配 `display` ——
+    #   `import_export_mixin.py` 的 update_template() 按
+    #   `hidden_header.append(value.get('display'))` 决定数据行取哪个字段的名称，
+    #   缺 display 会 append 一个 None ⇒ 该列的数据取不到 ⇒ 数据行比表头少 4 列
+    #   （实测表头 17 列 / 数据 13 列），整张「批量更新模板」错位。
     import_field_dict = {
         'hostname': '主机名',
         'ip': '主管理IP',
         'extra_ips': '其他内网IP',
-        'idc': {'title': '机房', 'choices': {'queryset': Idc.objects.filter(status=1), 'values_name': 'name'}},
-        'environment': {'title': '环境', 'choices': {'queryset': Environment.objects.filter(status=1), 'values_name': 'name'}},
-        'business_line': {'title': '业务线', 'choices': {'queryset': BusinessLine.objects.filter(status=1), 'values_name': 'name'}},
+        'idc': {'title': '机房', 'display': 'idc', 'choices': {'queryset': Idc.objects.filter(status=1), 'values_name': 'name'}},
+        'environment': {'title': '环境', 'display': 'environment', 'choices': {'queryset': Environment.objects.filter(status=1), 'values_name': 'name'}},
+        'business_line': {'title': '业务线', 'display': 'business_line', 'choices': {'queryset': BusinessLine.objects.filter(status=1), 'values_name': 'name'}},
         'deploy_content': '部署内容',
         'os': '操作系统',
         'cpu': 'CPU核数',
@@ -128,6 +166,7 @@ class ServerViewSet(CustomModelViewSet):
         'ssh_port': 'SSH端口',
         'status': {
             'title': '状态',
+            'display': 'status',
             'choices': {'data': {'online': '在线', 'offline': '离线', 'maintenance': '维护中', 'offline_shelf': '已下架'}},
         },
         'tags': '标签',
