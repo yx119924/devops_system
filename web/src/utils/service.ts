@@ -13,6 +13,28 @@ import qs from 'qs';
 import { getBaseURL } from './baseUrl';
 import { successMessage } from './message.js';
 /**
+ * 统一错误提示：**弹窗只给业务文案，接口路径只进控制台**。
+ *
+ * 为什么要集中在这里：下面有 4 个业务码分支（400 / 401 / 4000 / 其他）都会
+ * 弹提示，将来还可能继续加。原先每处都手拼 `${msg}: ${response.config.url}`，
+ * 只要新增一处忘了剥，用户界面就会又冒出内部接口路径 —— 这条约束
+ * 漏一处就等于没做。
+ *
+ * 为什么还要单独补一条 console：`errorCreate` 内部的 `console.error` 打印的
+ * 就是传进去的 msg 本身；msg 里删掉 URL，控制台也就跟着没了。而排障时
+ * 接口路径 + 原始响应体是第一手线索，所以在这里补打 ——
+ * "用户看不到" 与 "开发查得到" 这两件事并不冲突。
+ */
+function notifyError(msg: string, url?: string, payload?: any) {
+	// 控制台：保留完整线索（开发者可见、用户不可见）
+	if (url) {
+		console.warn(`[api] ${url}`, { msg, payload });
+	}
+	// 弹窗：只给业务文案
+	errorCreate(msg);
+}
+
+/**
  * @description 创建请求实例
  */
 function createService() {
@@ -74,7 +96,7 @@ function createService() {
 					case 400:
 						// Local.clear();
 						// Session.clear();
-						errorCreate(`${dataAxios.msg}: ${response.config.url}`);
+						notifyError(dataAxios.msg, response.config.url, dataAxios);
 						// window.location.reload();
 						break;
 					case 401:
@@ -87,7 +109,7 @@ function createService() {
 								// window.location.reload();
 							},
 						});
-						errorCreate(`${dataAxios.msg}: ${response.config.url}`);
+						notifyError(dataAxios.msg, response.config.url, dataAxios);
 						break;
 					case 2000:
 						// @ts-ignore
@@ -97,11 +119,11 @@ function createService() {
 						}
 						return dataAxios;
 					case 4000:
-						errorCreate(`${dataAxios.msg}: ${response.config.url}`);
+						notifyError(dataAxios.msg, response.config.url, dataAxios);
 						break;
 					default:
 						// 不是正确的 code
-						errorCreate(`${dataAxios.msg}: ${response.config.url}`);
+						notifyError(dataAxios.msg, response.config.url, dataAxios);
 						break;
 				}
 				return Promise.reject(dataAxios);
@@ -128,7 +150,13 @@ function createService() {
 					error.message = i18n.global.t('message.common.accessDenied');
 					break;
 				case 404:
-					error.message = i18n.global.t('message.common.requestAddressError', { url: error.response.config.url });
+					// ★ 弹窗文案里不出现接口路径：原写法用 requestAddressError 并把
+					//   config.url 插进 {url}，用户会看到「请求地址出错: /api/...」。
+					//   改成三语言都已存在、且不含路径的 endpointNotFound。
+					//   这里不用像 notifyError 那样补打 console —— 本分支随后走
+					//   errorLog(error)，而 console.error 打的是**整个 axios error
+					//   对象**，它自带 config.url，控制台不会丢线索。
+					error.message = i18n.global.t('message.common.endpointNotFound');
 					break;
 				case 408:
 					error.message = i18n.global.t('message.common.requestTimeout');
