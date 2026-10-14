@@ -21,6 +21,13 @@ from dvadmin.utils.models import CoreModel
 
 PROVIDER_TYPE_CHOICES = (
     ("openai_compat", "OpenAI 兼容"),
+    # ★ 2026-10-14 新增：OpenAI 官方新协议 `POST /v1/responses`。
+    #   加它的直接原因 —— 公司 codex 网关（New API）上的 `gpt-5.6-sol`
+    #   **只开了 `openai-response` 端点**，打 `/v1/chat/completions` 一律
+    #   `503 No available channel for model … endpoint: openai`。
+    #   ★ 这个 choices 必须登记：DRF 会按 choices 生成 `ChoiceField`，
+    #     不登记的话页面上根本存不进去（会报「不是合法选项」）。
+    ("openai_responses", "OpenAI Responses"),
 )
 
 # API Key 的密文前缀（与 dvadmin.alert.secrets 保持一致，便于统一识别）

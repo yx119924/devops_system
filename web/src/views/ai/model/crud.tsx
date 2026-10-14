@@ -163,7 +163,13 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           type: 'dict-select',
           search: { show: true },
           dict: dict({
-            data: [{ value: 'openai_compat', label: 'OpenAI 兼容', color: 'primary' }],
+            data: [
+              { value: 'openai_compat', label: 'OpenAI 兼容', color: 'primary' },
+              // ★ 2026-10-14 新增：OpenAI 官方新协议 `/v1/responses`。
+              //   公司 codex 网关（New API）上的 gpt-5.6-sol 只开这个端点，
+              //   选「OpenAI 兼容」会 503。两者接口地址都填到 …/v1 为止。
+              { value: 'openai_responses', label: 'OpenAI Responses', color: 'success' },
+            ],
           }),
           column: { width: 120, align: 'center' },
           form: { value: 'openai_compat' },

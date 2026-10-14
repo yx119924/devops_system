@@ -255,8 +255,24 @@ class OpenAICompatProvider(BaseProvider):
 
 
 def get_provider(config):
-    """按 provider_type 返回对应实现。当前只有一种，留好扩展点。"""
+    """按 provider_type 返回对应实现。
+
+    ★ 两种协议的分工（2026-10-14 新增 `openai_responses`）：
+      · `openai_compat`    → `POST /v1/chat/completions`
+        DeepSeek / 通义 / Kimi / Ollama 等绝大多数 OpenAI 兼容服务走这个。
+      · `openai_responses` → `POST /v1/responses`
+        OpenAI 官方新协议。**公司 codex 网关（New API）上的 `gpt-5.6-sol` 只开这个端点**，
+        打 `/v1/chat/completions` 会得到
+        `503 No available channel for model … endpoint: openai`。
+
+    ★ `from … import` 刻意写在函数体内（懒加载）：`responses.py` 在**模块级**
+      import 了本模块的 `OpenAICompatProvider`（复用 `_post` / `_raise_for_status`），
+      若这里也在模块级 import 回去就会**成环**。
+    """
     ptype = (getattr(config, "provider_type", "") or "openai_compat").lower()
+    if ptype == "openai_responses":
+        from dvadmin.aiagent.providers.responses import OpenAIResponsesProvider
+        return OpenAIResponsesProvider(config)
     if ptype == "openai_compat":
         return OpenAICompatProvider(config)
     raise ProviderError("暂不支持的接口类型：%s" % ptype)
