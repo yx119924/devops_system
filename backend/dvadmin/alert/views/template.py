@@ -52,18 +52,10 @@ class AlertTemplateViewSet(CustomModelViewSet):
     search_fields = ["name", "description"]
     filter_fields = ["enabled", "is_default"]
 
-    def filter_queryset(self, queryset):
-        """前端按列搜索「模板名称/描述」传的是 name=/description=，需手动做 icontains 模糊匹配。
-        其余字段（enabled/is_default）走 django-filter 精确匹配，search= 走 SearchFilter。
-        """
-        q = self.request.query_params
-        name = q.get("name")
-        if name:
-            queryset = queryset.filter(name__icontains=name)
-        description = q.get("description")
-        if description:
-            queryset = queryset.filter(description__icontains=description)
-        return super().filter_queryset(queryset)
+    # ★ 2026-10-14：原先这里有一段手写 name/description 的 `icontains` 补丁。
+    #   现已由 `dvadmin/utils/search_filter.py::SearchLikeBackend` 统一提供
+    #   （它读本类的 `search_fields`），故删除 —— 同一件事不留两处实现。
+    #   参考：deploy/全站搜索失效-排查报告_20261014.md
 
     @action(methods=["GET"], detail=False, url_path="all")
     def all_list(self, request, *args, **kwargs):

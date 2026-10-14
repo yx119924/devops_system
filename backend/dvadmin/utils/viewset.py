@@ -19,6 +19,7 @@ from rest_framework.decorators import action
 from rest_framework.viewsets import ModelViewSet
 
 from dvadmin.utils.filters import CoreModelFilterBankend, DataLevelPermissionMargeFilter
+from dvadmin.utils.search_filter import SearchLikeBackend
 from dvadmin.utils.import_export_mixin import ExportSerializerMixin, ImportSerializerMixin
 from dvadmin.utils.json_response import SuccessResponse, ErrorResponse, DetailResponse
 from dvadmin.utils.permission import CustomPermission
@@ -43,7 +44,11 @@ class CustomModelViewSet(ModelViewSet, ImportSerializerMixin, ExportSerializerMi
     update_serializer_class = None
     filter_fields = '__all__'
     search_fields = ()
-    extra_filter_class = [CoreModelFilterBankend,DataLevelPermissionMargeFilter]
+    # ★ `SearchLikeBackend` 让 `search_fields` 声明的文本字段**真正生效**（icontains 模糊搜索）。
+    #   放在基类而不是各 viewset，是为了「一处生效全站」—— 历史上只有 3 个页面手工打了这种
+    #   补丁，其余 20 个页面的搜索框要么返回全量、要么只能精确匹配。
+    #   详见 dvadmin/utils/search_filter.py 与 deploy/全站搜索失效-排查报告_20261014.md
+    extra_filter_class = [CoreModelFilterBankend, SearchLikeBackend, DataLevelPermissionMargeFilter]
     permission_classes = [CustomPermission]
     import_field_dict = {}
     export_field_label = {}

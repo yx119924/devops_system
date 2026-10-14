@@ -23,6 +23,7 @@ from rest_framework.filters import BaseFilterBackend
 from django_filters.conf import settings
 
 from dvadmin.system.models import Dept, ApiWhiteList, RoleMenuButtonPermission, MenuButton, Users
+from dvadmin.utils.search_filter import pick_filter_fields
 from util.currency import recursion_down_fast
 
 
@@ -335,6 +336,14 @@ class CustomDjangoFilterBackend(DjangoFilterBackend):
                 "`%s.filter_fields` attribute should be renamed `filterset_fields`." % view.__class__.__name__
             )
             self.filter_fields = getattr(view, "filter_fields", None)
+            # ★ 2026-10-14：把「已交给 SearchLikeBackend 做 icontains」的文本字段从这里剔除。
+            #   若不剔，同一字段会同时被 exact 与 icontains 过滤（两个条件 AND ⇒ 等价 exact），
+            #   模糊搜索照样不生效 —— 「历史告警」搜「目标网关」查不到「目标网关不可达」正是此因。
+            #   非 list/tuple（如 "__all__"）会被原样返回，默认行为不受影响。
+            #   判据与实测记录见 dvadmin/utils/search_filter.py。
+            self.filter_fields = pick_filter_fields(
+                view, queryset.model if queryset is not None else None
+            )
             if isinstance(self.filter_fields, (list, tuple)):
                 filterset_fields = [
                     field[1:] if field[0] in self.lookup_prefixes.keys() else field for field in self.filter_fields

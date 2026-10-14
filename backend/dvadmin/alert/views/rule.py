@@ -37,21 +37,11 @@ class AlertRuleViewSet(CustomModelViewSet):
     search_fields = ['name', 'expr', 'summary']
     filter_fields = ['enabled', 'severity', 'template', 'source']
 
-    def filter_queryset(self, queryset):
-        """前端按列搜索「规则名称/PromQL」传 name=/expr=，需手动 icontains 模糊匹配。
-        其余字段（enabled/severity）走 django-filter 精确匹配。
-        """
-        q = self.request.query_params
-        name = q.get("name")
-        if name:
-            queryset = queryset.filter(name__icontains=name)
-        expr = q.get("expr")
-        if expr:
-            queryset = queryset.filter(expr__icontains=expr)
-        summary = q.get("summary")
-        if summary:
-            queryset = queryset.filter(summary__icontains=summary)
-        return super().filter_queryset(queryset)
+    # ★ 2026-10-14：原先这里有一段手写 name/expr/summary 的 `icontains` 补丁。
+    #   现已由 `dvadmin/utils/search_filter.py::SearchLikeBackend` 统一提供
+    #   （它读本类的 `search_fields`），故删除 —— 同一件事不留两处实现，
+    #   也避免重复的 icontains 掩盖「新机制是否真的生效」。
+    #   参考：deploy/全站搜索失效-排查报告_20261014.md
 
     def perform_create(self, serializer):
         serializer.save()
