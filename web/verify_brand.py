@@ -14,6 +14,7 @@
 """
 
 import sys
+import re
 import hashlib
 import pathlib
 
@@ -126,6 +127,19 @@ for p in list(WEB.rglob("*.vue")) + list(WEB.rglob("*.ts")) + list(WEB.rglob("*.
     except (UnicodeDecodeError, OSError):
         pass
 check("web 源码中不再出现 XwOps", not hits, "残留: %s" % ", ".join(hits))
+
+# ---------------------------------------------------------------- 6. 主题主色
+print("[6] 主题主色")
+mm = re.search(r'primary:\s*"(#[0-9A-Fa-f]{6})"', tc)
+primary = mm.group(1).lower() if mm else None
+check("全局主色保持 #193755（本轮不改按钮色）", primary == "#193755", "当前=%s" % primary)
+if primary and mini and favicon:
+    # 防止「只改图标忘了按钮」或反之：图标底色必须与主色同值
+    check(
+        "图标底色与全局按钮色一致（避免图标一个蓝、按钮另一个蓝）",
+        primary in mini.lower() and primary in favicon.lower(),
+        "primary=%s" % primary,
+    )
 
 # ---------------------------------------------------------------- 汇总
 passed = sum(1 for _, ok, _ in results if ok)

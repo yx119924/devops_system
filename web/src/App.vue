@@ -70,8 +70,9 @@ onMounted(() => {
 			setingsRef.value.openDrawer();
 		});
     // 设置皮肤缓存版本：bump 版本号即可让所有用户下次打开时丢弃旧的主题缓存
-    // ★ 品牌换装到 1.1.0 必须 bump：否则 localStorage 里的旧 themeConfig（含旧标题）
-    //   会在下方整份覆盖代码里的默认值，导致老用户永远看到旧品牌
+    // ★ 每次改 themeConfig 的默认值（标题、主色等）都必须 bump，否则 localStorage 里的
+    //   旧 themeConfig 会在下方整份覆盖代码默认值，老用户永远看不到新标题 / 新主色。
+    //   版本履历：1.1.0 = 品牌换名（主色保持 #193755 未动）
     const themeConfigVersion = '1.1.0'
 		// 获取缓存中的布局配置
     if (Local.get('themeConfigVersion') !== themeConfigVersion) {
