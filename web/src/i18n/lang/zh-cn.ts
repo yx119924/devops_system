@@ -44,9 +44,6 @@ export default {
             welcomeInfo1: ' 这里是您的工作台，请愉快的工作吧！',
             quickNavigationTool: '快捷导航工具',
         },
-        footer: {
-            copyright: ' ❤️ Powered by XwOps Copyright © XwOps Team 2026 ❤️',
-        },
         router: {
             home: '首页',
             system: '系统管理',
@@ -410,7 +407,6 @@ export default {
         fourIsCacheTagsView: '开启 TagsView 缓存',
         fourIsSortableTagsView: '开启 TagsView 拖拽',
         fourIsShareTagsView: '开启 TagsView 共用',
-        fourIsFooter: '开启 Footer',
         fourIsGrayscale: '灰色模式',
         fourIsInvert: '色弱模式',
         fourIsDark: '深色模式',

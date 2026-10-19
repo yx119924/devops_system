@@ -5,7 +5,7 @@
       <div class="hero-left">
         <div class="hero-greet">
           <span class="hero-hello">{{ greeting }}，{{ userInfo.userInfos.name }}</span>
-          <span class="hero-sub">XwOps 运维管理平台 · 统一资产管理 / 堡垒机 / 发布 / 监控</span>
+          <span class="hero-sub">DevOps 运维管理平台 · 统一资产管理 / 堡垒机 / 发布 / 监控</span>
         </div>
         <div class="hero-meta">
           <div class="hero-clock">

@@ -30,7 +30,7 @@
 						<div class="layout-lock-screen-login-box-img">
 							<!-- 上游模板残留：原头像指向一个第三方 CDN 外链（详见 CHANGELOG）。
 							     内网不可达会裂图，且每次锁屏都会向公网发起一次请求。改为平台自带的 logo-mini.svg。 -->
-							<img :src="logoMini" alt="XwOps" />
+							<img :src="logoMini" alt="DevOps" />
 						</div>
 						<div class="layout-lock-screen-login-box-name">Administrator</div>
 						<div class="layout-lock-screen-login-box-value">

@@ -44,17 +44,7 @@
 		</div>
 
 		<div class="login-authorization z-10">
-			<p>Copyright © 2024-2026 XwOps 所有权利保留 <!-- 底部版权文案：直接改本行即可 --></p>
-			<p class="la-other" style="margin-top: 5px;">
-				<a :href="getSystemConfig['login.help_url'] ? getSystemConfig['login.help_url'] : '#'"
-					target="_blank">{{ $t('message.pages.login.footer.help') }}</a>
-				|
-				<a
-					:href="getSystemConfig['login.privacy_url'] ? getBaseURL(getSystemConfig['login.privacy_url']) : '#'">{{ $t('message.pages.login.footer.privacy') }}</a>
-				|
-				<a
-					:href="getSystemConfig['login.clause_url'] ? getBaseURL(getSystemConfig['login.clause_url']) : '#'">{{ $t('message.pages.login.footer.clause') }}</a>
-			</p>
+			<p>Copyright © 2024-2026 DevOps 运维管理平台 保留所有权利 <!-- 底部版权文案：直接改本行即可 --></p>
 		</div>
 	</div>
 	<div v-if="loginBg">
@@ -71,7 +61,6 @@ import logoMini from '/@/assets/logo-mini.svg';
 import loginMain from '/@/assets/login-main.svg';
 import loginBg from '/@/assets/login-bg.png';
 import { SystemConfigStore } from '/@/stores/systemConfig'
-import { getBaseURL } from "/@/utils/baseUrl";
 // 引入组件
 const Account = defineAsyncComponent(() => import('/@/views/system/login/component/account.vue'));
 const ChangePwd = defineAsyncComponent(() => import('/@/views/system/login/component/changePwd.vue'));

@@ -7,9 +7,6 @@ export default {
       welcomeInfo1: ' 這裏是您的工作台，請愉快的工作吧！',
       quickNavigationTool: '快捷導航工具',
     },
-    footer: {
-      copyright: ' ❤️ Powered by XwOps Copyright © XwOps Team 2026 ❤️',
-    },
     router: {
       home: '首頁',
       system: '系統設置',
@@ -407,7 +404,6 @@ export default {
     fourIsCacheTagsView: '開啟 TagsView 緩存',
     fourIsSortableTagsView: '開啟 TagsView 拖拽',
     fourIsShareTagsView: '開啟 TagsView 共用',
-    fourIsFooter: '開啟 Footer',
     fourIsGrayscale: '灰色模式',
     fourIsInvert: '色弱模式',
     fourIsDark: '深色模式',

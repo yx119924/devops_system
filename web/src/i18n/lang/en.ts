@@ -7,9 +7,6 @@ export default {
       welcomeInfo1: ' This is your workspace, please work happily!',
       quickNavigationTool: 'Quick Navigation Tools',
     },
-    footer: {
-      copyright: ' ❤️ Powered by XwOps Copyright © XwOps Team 2026 ❤️',
-    },
     router: {
       home: 'Home',
       system: 'System MGT',
@@ -406,7 +403,6 @@ export default {
     fourIsCacheTagsView: 'Enable TagsView Cache',
     fourIsSortableTagsView: 'Enable TagsView Drag & Drop',
     fourIsShareTagsView: 'Enable TagsView Sharing',
-    fourIsFooter: 'Enable Footer',
     fourIsGrayscale: 'Grayscale Mode',
     fourIsInvert: 'Color Weak Mode',
     fourIsDark: 'Dark Mode',

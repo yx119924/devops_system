@@ -95,8 +95,9 @@ export const useThemeConfig = defineStore('themeConfig', {
 			isSortableTagsView: true,
 			// 是否开启 TagsView 共用
 			isShareTagsView: false,
-			// 是否开启 Footer 底部版权信息
-			isFooter: true,
+			// 已废弃：页脚已彻底移除（组件、渲染入口、设置面板开关均已删除）。
+			// 字段仅为兼容 localStorage 里的旧缓存而保留，不再影响任何渲染。
+			isFooter: false,
 			// 是否开启灰色模式
 			isGrayscale: false,
 			// 是否开启色弱模式
@@ -137,11 +138,11 @@ export const useThemeConfig = defineStore('themeConfig', {
 			 * 全局网站标题 / 副标题
 			 */
 			// 网站主标题（菜单导航、浏览器当前网页标题）
-			globalTitle: 'XwOps',
+			globalTitle: 'DevOps',
 			// 网站副标题（登录页顶部文字）
-			globalViceTitle: 'XwOps',
+			globalViceTitle: 'DevOps',
 			// 网站副标题（登录页顶部文字）
-			globalViceTitleMsg: '企业级DevOps平台',
+			globalViceTitleMsg: '运维管理平台',
 			// 默认初始语言，可选值"<zh-cn|en|zh-tw>"，默认 zh-cn
 			globalI18n: 'zh-cn',
 			// 默认全局组件大小，可选值"<large|'default'|small>"，默认 'large'

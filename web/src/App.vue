@@ -69,13 +69,18 @@ onMounted(() => {
 		mittBus.on('openSetingsDrawer', () => {
 			setingsRef.value.openDrawer();
 		});
-    // 设置皮肤缓存版本，每次更新版本可以所有用户清空缓存
-    const themeConfigVersion = '1.0.0'
+    // 设置皮肤缓存版本：bump 版本号即可让所有用户下次打开时丢弃旧的主题缓存
+    // ★ 品牌换装到 1.1.0 必须 bump：否则 localStorage 里的旧 themeConfig（含旧标题）
+    //   会在下方整份覆盖代码里的默认值，导致老用户永远看到旧品牌
+    const themeConfigVersion = '1.1.0'
 		// 获取缓存中的布局配置
     if (Local.get('themeConfigVersion') !== themeConfigVersion) {
-        Local.clear();
+        // 只精准清理主题相关键。不要全清 localStorage —— token 也存在里面，
+        // 全清会让全站用户被迫重新登录，品牌换装没必要动登录态。
+        Local.remove('themeConfig');
+        Local.remove('themeConfigStyle');
         Local.set('themeConfigVersion', themeConfigVersion);
-	      window.location.reload();
+        window.location.reload();
         return
     }
 		if (Local.get('themeConfig')) {
