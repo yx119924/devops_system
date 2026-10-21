@@ -109,6 +109,20 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
   return {
     crudOptions: {
       request: { pageRequest, addRequest, editRequest, delRequest },
+      // ★ 2026-10-21 修复「两条配置只看得见一行，必须滚轮才看得到第二条」
+      //   本页的 fs-crud 套在 el-tabs 里。fast-crud 的 FsPage 结构是
+      //     .fs-page > .fs-page-content > <slot>
+      //   而 .fs-page-content 是 `flex:1; overflow:auto` 的 **block**，不是 flex 容器
+      //   ⇒ 里面的 el-tabs 写 flex:1 拿不到剩余高度（上一版就是这么修的，无效，已回滚）。
+      //   于是 .fs-container > .box > .inner（position:absolute，撑满最近的定位祖先）
+      //   只撑到「上面那行提示文字」的约 110px，表头 40px + 1 行正好占满。
+      //   解法走 fast-crud 官方开关：FsContainer 的 props 里 fixedHeight 默认 true，
+      //   置 false 时它把 .inner 的 position 改成 relative、.body 的 flex 改成 unset
+      //   ⇒ 表格按数据行数自己撑开，不再依赖任何祖先高度；数据多了由 .fs-page-content
+      //   的整体滚动兜住（它本来就是 overflow:auto）。
+      //   代价：表头不再固定、分页跟着内容走 —— 换来的是「有几条就显示几条」，与
+      //   Jenkins 服务器页那种「一眼看到多条记录」的观感一致。
+      container: { fixedHeight: false },
       actionbar: { buttons: { add: { show: hasAuth('ai_provider:Create') } } },
       rowHandle: {
         fixed: 'right',

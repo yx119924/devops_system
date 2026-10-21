@@ -71,29 +71,15 @@ export default defineComponent({
 .ai-model-tabs :deep(.el-tabs__header) {
 	margin-bottom: 12px;
 }
-/* ★ 2026-10-21 修复「两条配置只看得到一行，必须滚轮才能看第二条」
- * 根因是一条纯样式链路（这几个类的规则全部来自 element-plus / fast-crud 内建样式）：
- *   ① fast-crud 的 .fs-page 是 position:absolute; top:0; bottom:0 —— 高度完全由定位祖先决定；
- *   ② 它被套在 .el-tabs__content 里（该元素 position:relative + overflow:hidden）；
- *   ③ .el-tabs 虽然是 display:flex，但它作为外层 .fs-page 的 flex 子项时高度是 auto，
- *      于是 .el-tabs__content 的 flex-grow:1 无处可长，高度只剩流内内容 ——
- *      也就是上面那行 .tab-tip 的两行小字（约 60px）；
- *   ④ 结果表格正文区只有 1 行高，第二条要滚轮；下方大片空白是内容区根本没撑开。
- *      （旁证：1082px 与 1920px 两种窗口高度下都只显示一行 ⇒ 与视口无关。）
- * 修法：补全高度链路 —— tabs 吃满外层 fs-page，content 再吃满 tabs（减掉页签头）。
- * ★ 只作用于 .ai-model-tabs，不改全局 fast-crud 样式。
- * ★ content 必须自己能滚：同页「安全护栏」是长表单，给了确定高度后若不给 overflow-y，
- *   超出部分会被 overflow:hidden 直接裁掉（配置项看得见摸不着）。
- */
-.ai-model-tabs {
-	flex: 1;
-	min-height: 0;
-}
-.ai-model-tabs :deep(.el-tabs__content) {
-	flex: 1;
-	min-height: 0;
-	overflow-y: auto;
-}
+/* ★ 2026-10-21 这里**不要**用 CSS 修表格高度，踩过两次：
+ *   ① fast-crud 的 FsPage 结构是 .fs-page > [.fs-page-header] + .fs-page-content + [.fs-page-footer]，
+ *      而 .fs-page-content 是 `flex:1; overflow:auto` 的 **block** ⇒ 给里面的 el-tabs 写 flex:1
+ *      拿不到任何剩余高度（父级没开 flex 分配），改了等于没改。
+ *   ② 改成 height:100% 能拿到高度，但 .fs-container{height:100%} 会撑满整个 content，
+ *      而它的 .inner 是相对 .box 绝对定位的 ⇒ 表格会直接盖住上面那条 .tab-tip 提示语，比现状更糟。
+ *   正解在 crud.tsx 的 container.fixedHeight = false：让表格按数据行数自己撑开，
+ *   不再依赖任何祖先高度，表格与提示语保持正常流关系。 */
+.tab-label {
 .tab-label {
 	display: inline-flex;
 	align-items: center;
