@@ -80,7 +80,6 @@ export default defineComponent({
  *   正解在 crud.tsx 的 container.fixedHeight = false：让表格按数据行数自己撑开，
  *   不再依赖任何祖先高度，表格与提示语保持正常流关系。 */
 .tab-label {
-.tab-label {
 	display: inline-flex;
 	align-items: center;
 }
