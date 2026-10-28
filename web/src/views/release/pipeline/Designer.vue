@@ -411,7 +411,10 @@ export default defineComponent({
 				cfg.title = node.config?.title || '';
 				cfg.content = node.config?.content || '';
 			}
-			if (node.node_type === 'param') return {};
+			// ★ param 节点必须照常入库（2026-10-28 修复）：engine.py 有专门的「参数已就绪」
+			//   执行分支，后端 validate_node_config 也接受空 config。这里千万不能写
+			//   `if (node.node_type === 'param') return {};` —— 那会把整个节点对象替换成 {}，
+			//   后端保存节点时的 name 校验随即报「第 N 个节点没有填名称」，节点明明有名字也照报。
 			return {
 				id: node.id,
 				name: node.name,
