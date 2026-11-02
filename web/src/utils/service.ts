@@ -106,7 +106,13 @@ function createService() {
 						ElMessageBox.alert(dataAxios.msg, i18n.global.t('message.common.prompt'), {
 							confirmButtonText: 'OK',
 							callback: (action: Action) => {
-								// window.location.reload();
+								// ★ 必须真的离开当前页。这一步原来是注释掉的，导致
+								//   业务码 401 时只清 token 不跳转：如果这次请求发生在
+								//   路由守卫里（刷新进入系统、token 已过期），守卫会因
+								//   Promise.reject 中止导航，next() 永不执行，用户就
+								//   永久停在白屏 loading 上，只能手动 F5。（2026-11-02 实测）
+								//   注：HTTP 200 + body code=401 会走本分支，不是下面的 error 分支。
+								window.location.reload();
 							},
 						});
 						notifyError(dataAxios.msg, response.config.url, dataAxios);

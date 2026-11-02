@@ -7,6 +7,7 @@ import {useKeepALiveNames} from '/@/stores/keepAliveNames';
 import {useRoutesList} from '/@/stores/routesList';
 import {useThemeConfig} from '/@/stores/themeConfig';
 import {Session} from '/@/utils/storage';
+import {NextLoading} from '/@/utils/loading';
 import {dynamicRoutes, notFoundAndNoPower, staticRoutes} from '/@/router/route';
 import {initFrontEndControlRoutes} from '/@/router/frontEnd';
 import {initBackEndControlRoutes, setRouters} from '/@/router/backEnd';
@@ -112,7 +113,15 @@ const checkToken = ()=>{
 // 路由加载前
 router.beforeEach(async (to, from, next) => {
     // 检查浏览器本地版本与线上版本是否一致，判断是否需要刷新页面进行更新
-    await checkVersion()
+    // ★ checkVersion 打的是构建期才生成的 version-build（utils/upgrade.ts:34），
+    //   一旦 404 / 超时 / 网络抖动，裸 await 会让整个守卫 reject ⇒ 导航中止、
+    //   next() 永不执行 ⇒ 全局 loading 永久残留。版本检查只是锦上添花，
+    //   失败必须放过，不能拖死导航。（2026-11-02 事故复盘）
+    try {
+        await checkVersion()
+    } catch (e) {
+        console.warn('[router] 版本检查失败，已忽略，不影响导航', e)
+    }
     checkToken()
     NProgress.configure({showSpinner: false});
     if (to.meta.title) NProgress.start();
@@ -137,17 +146,32 @@ router.beforeEach(async (to, from, next) => {
             const storesRoutesList = useRoutesList(pinia);
             const {routesList} = storeToRefs(storesRoutesList);
             if (routesList.value.length === 0) {
-                if (isRequestRoutes) {
-                    // 后端控制路由：路由数据初始化，防止刷新时丢失
-                    await initBackEndControlRoutes();
+                // ★ 必须 try/catch：初始化会串行 await 用户信息 / 按钮权限 / 菜单等接口。
+                //   token 过期时后端返回 HTTP 200 + body 里 code=401（见后端
+                //   dvadmin/utils/exception.py:95，ErrorResponse 的 status 默认 None），
+                //   拦截器 Session.clear() 后 Promise.reject ⇒ 这里 await 抛错 ⇒
+                //   本守卫整体 reject ⇒ vue-router 只「中止导航」，不会替你调 next()。
+                //   后果：afterEach 不跑、目标组件不挂载、.loading-next 永不移除
+                //   ⇒ 白屏 + 9 个小方块无限转圈，只能手动 F5。（2026-11-02 实测）
+                try {
+                    if (isRequestRoutes) {
+                        // 后端控制路由：路由数据初始化，防止刷新时丢失
+                        await initBackEndControlRoutes();
+                    } else {
+                        // https://gitee.com/lyt-top/vue-next-admin/issues/I5F1HP
+                        await initFrontEndControlRoutes();
+                    }
                     // 解决刷新时，一直跳 404 页面问题，关联问题 No match found for location with path 'xxx'
                     // to.query 防止页面刷新时，普通路由带参数时，参数丢失。动态路由（xxx/:id/:name"）isDynamic 无需处理
-
                     next({ path: to.path, query: to.query });
-                } else {
-                    // https://gitee.com/lyt-top/vue-next-admin/issues/I5F1HP
-                    await initFrontEndControlRoutes();
-                    next({ path: to.path, query: to.query });
+                } catch (e) {
+                    // 兜底三件事：清掉已失效的登录态、收掉全局 loading 与进度条、回登录页。
+                    // 少任何一件，用户看到的就是「一直转圈」或「停在白屏」。
+                    console.warn('[router] 路由初始化失败，已清理登录态并回登录页', e)
+                    Session.clear()
+                    NextLoading.done()
+                    NProgress.done()
+                    next(`/login?redirect=${to.path}`)
                 }
             } else {
                 next();
@@ -159,6 +183,15 @@ router.beforeEach(async (to, from, next) => {
 // 路由加载后
 router.afterEach(() => {
     NProgress.done();
+});
+
+// ★ 导航期异常兜底：守卫抛错、动态 chunk 加载失败（发版后旧 index.html 引用旧 hash
+//   就会这样 —— login 本身就是懒加载 chunk，加载失败时导航会静默中止）都会走到这里。
+//   没有这一层，用户看到的同样是「白屏 + 永久转圈」，而且没有任何提示。
+router.onError((error) => {
+    console.error('[router] 导航异常，已收掉全局 loading', error)
+    NextLoading.done()
+    NProgress.done()
 });
 
 // 导出路由
