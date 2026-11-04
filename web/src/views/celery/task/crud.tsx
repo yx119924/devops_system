@@ -83,7 +83,7 @@ export const createCrudOptions = function ({ crudExpose }: CreateCrudOptionsProp
                     title: t('message.pages.taskManage.table.columns.task'),
                     type: 'dict-select',
                     dict: dict({
-                        url: '/api/dvadmin_celery/task/job_list/?limit=999',
+                        url: '/dvadmin_celery/task/job_list/?limit=999',
                         value: 'label',
                         label: 'label',
                     }),

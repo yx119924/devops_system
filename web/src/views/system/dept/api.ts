@@ -1,7 +1,7 @@
 import { request } from '/@/utils/service';
 import { UserPageQuery, AddReq, EditReq, InfoReq, PageQuery } from '@fast-crud/fast-crud';
 
-export const apiPrefix = '/api/system/dept/';
+export const apiPrefix = '/system/dept/';
 
 export function GetList(query: UserPageQuery) {
 	return request({
@@ -73,7 +73,7 @@ export function deptMoveDown(obj: AddReq) {
  */
 export function getDeptUserList(query: PageQuery) {
 	return request({
-		url: "/api/system/user/",
+		url: "/system/user/",
 		method: 'get',
 		params: query,
 	});
@@ -84,7 +84,7 @@ export function getDeptUserList(query: PageQuery) {
  */
 export function getAllDeptList() {
 	return request({
-		url: "/api/system/dept/all_dept/",
+		url: "/system/dept/all_dept/",
 		method: 'get',
 	});
 }

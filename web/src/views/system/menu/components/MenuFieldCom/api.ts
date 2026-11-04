@@ -3,7 +3,7 @@ import { UserPageQuery, AddReq, DelReq, EditReq, InfoReq } from '@fast-crud/fast
 import XEUtils from "xe-utils";
 import {CurrentInfoType} from "/@/views/system/columns/types";
 
-export const apiPrefix = '/api/system/column/';
+export const apiPrefix = '/system/column/';
 export function GetList(query: UserPageQuery) {
 	return request({
 		url: apiPrefix,
@@ -54,7 +54,7 @@ export function BatchDelete(keys: any) {
  */
 export function getModelList() {
 	return request({
-		url: '/api/system/column/get_models/',
+		url: '/system/column/get_models/',
 		method: 'get',
 	});
 }
@@ -65,7 +65,7 @@ export function getModelList() {
  */
 export function automatchColumnsData(data: CurrentInfoType) {
 	return request({
-		url: '/api/system/column/auto_match_fields/',
+		url: '/system/column/auto_match_fields/',
 		method: 'post',
 		data,
 	});

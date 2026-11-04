@@ -1,15 +1,15 @@
 /**
  * 智能问答 —— 接口封装
  *
- * ★ 路径都带 `/api` 前缀：本工程是**双前缀**（前端 `/api` + api.ts 里的 `/api/...`），
- *   nginx 用 `rewrite ^/api/(.*)$ /$1 break;` 吃掉一层，django 侧只认单层。
- *   所以这里照抄 `/api/aiagent/...`，不要自作聪明改成单层 —— 浏览器直连 8080 会 404。
+ * ★ 前缀只在 baseURL 里出现一次：生产为 `/devops`（见 web/.env.production），
+ *   这里只写业务段 `/aiagent/...`。nginx 用 `rewrite ^/devops/(.*)$ /$1 break;`
+ *   剥掉外层前缀后，django 侧收到的就是 `/aiagent/...`，正好命中后端路由。
  */
 import { request } from '/@/utils/service';
 import type { ChatOptions, ChatSessionBrief, ChatSessionDetail, SendPayload, SendResult, ToolCallRecord } from './type';
 
-export const chatPrefix = '/api/aiagent/chat/';
-export const toolCallPrefix = '/api/aiagent/toolcall/';
+export const chatPrefix = '/aiagent/chat/';
+export const toolCallPrefix = '/aiagent/toolcall/';
 
 /**
  * 单次提问的等待上限。

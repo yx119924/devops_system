@@ -62,7 +62,7 @@
 			<el-button :icon="!showCount ? 'Hide' : 'View'" circle @click="showCount = !showCount"></el-button>
 		</template>
 		<template #actionbar-right>
-			<importExcel api="api/system/user/" v-auth="'user:Import'">{{ $t('message.pages.dept.user.import') }} </importExcel>
+			<importExcel api="/system/user/" v-auth="'user:Import'">{{ $t('message.pages.dept.user.import') }} </importExcel>
 		</template>
 		<template #cell_avatar="scope">
 			<div v-if="scope.row.avatar" style="display: flex; justify-content: center; align-items: center;">

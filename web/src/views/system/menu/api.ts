@@ -1,7 +1,7 @@
 import { request } from '/@/utils/service';
 import { UserPageQuery, AddReq, EditReq, InfoReq } from '@fast-crud/fast-crud';
 
-export const apiPrefix = '/api/system/menu/';
+export const apiPrefix = '/system/menu/';
 
 export function GetList(query: UserPageQuery) {
   return request({
@@ -86,7 +86,7 @@ export function menuMoveDown(obj: AddReq) {
  */
 export function scanGetApps() {
   return request({
-    url: '/api/system/menu_button/scan_get_apps/',
+    url: '/system/menu_button/scan_get_apps/',
     method: 'get',
   });
 }
@@ -96,7 +96,7 @@ export function scanGetApps() {
  */
 export function scanViewSet(app: string) {
   return request({
-    url: '/api/system/menu_button/scan_viewset/',
+    url: '/system/menu_button/scan_viewset/',
     method: 'post',
     data: { app },
   });
@@ -107,7 +107,7 @@ export function scanViewSet(app: string) {
  */
 export function scanBatchCreate(menuId: number | string, buttons: any[]) {
   return request({
-    url: '/api/system/menu_button/scan_batch_create/',
+    url: '/system/menu_button/scan_batch_create/',
     method: 'post',
     data: { menu_id: menuId, buttons },
   });

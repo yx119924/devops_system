@@ -47,7 +47,7 @@ const onGoToGiteeClick = () => {
 import { request } from '/@/utils/service';
 const getLastMsg = () => {
 	request({
-		url: '/api/system/message_center/get_newest_msg/',
+		url: '/system/message_center/get_newest_msg/',
 		method: 'get',
 		params: {},
 	}).then((res: any) => {

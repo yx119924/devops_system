@@ -236,7 +236,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           title: '告警群组',
           type: 'dict-select',
           dict: dict({
-            url: '/api/alert/group/all/',
+            url: '/alert/group/all/',
             value: 'id',
             label: 'name',
             getDataFromUrl: true,
@@ -250,7 +250,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           title: '通知模板',
           type: 'dict-select',
           dict: dict({
-            url: '/api/alert/template/all/',
+            url: '/alert/template/all/',
             value: 'id',
             label: 'name',
             getDataFromUrl: true,

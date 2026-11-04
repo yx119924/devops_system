@@ -114,7 +114,10 @@ class DataLevelPermissionsFilter(BaseFilterBackend):
         ]
         for item in api_white_list:
             new_api = f"{api}:{method}"
-            matchObj = re.match(item, new_api, re.M | re.I)
+            # ★ 2026-11-04 前缀改造兼容：菜单按钮表（MenuButton.api）里的历史记录
+            #   仍带 `/api` 前缀，而对外前缀改为 /devops 后 `request.path` 已不含它。
+            #   两条都试，改造前后均能命中；待数据迁移完成可只保留第一条。
+            matchObj = re.match(item, new_api, re.M | re.I) or re.match(item, f"/api{api}:{method}", re.M | re.I)
             if matchObj is None:
                 continue
             else:
@@ -155,7 +158,12 @@ class DataLevelPermissionsFilter(BaseFilterBackend):
             re_api = re.sub(_pk,'{id}', api)
         role_id_list = request.user.role.values_list('id', flat=True)
         # 修复权限获取bug
-        menu_button_ids = MenuButton.objects.filter(api=re_api,method=method).values_list('id', flat=True)
+        # ★ 2026-11-04 前缀改造兼容：历史 MenuButton.api 带 `/api` 前缀，而对外前缀
+        #   改为 /devops 后 request.path 已不含它。这里一次查两种形态，改造前后都能命中。
+        #   （查不到会落到 dept_belong_id__in=[] ⇒ 非超管恒返回空集，见 server.py:184 注释）
+        menu_button_ids = MenuButton.objects.filter(
+            Q(api=re_api) | Q(api='/api' + re_api), method=method
+        ).values_list('id', flat=True)
         role_permission_list = []
         if menu_button_ids:
             role_permission_list=RoleMenuButtonPermission.objects.filter(
@@ -222,7 +230,12 @@ class DataLevelPermissionsSubFilter(DataLevelPermissionsFilter):
         if _pk: # 判断是否是单例查询
             re_api = re.sub(_pk,'{id}', api)
         role_id_list = request.user.role.values_list('id', flat=True)
-        menu_button_ids = MenuButton.objects.filter(api=re_api,method=method).values_list('id', flat=True)
+        # ★ 2026-11-04 前缀改造兼容：历史 MenuButton.api 带 `/api` 前缀，而对外前缀
+        #   改为 /devops 后 request.path 已不含它。这里一次查两种形态，改造前后都能命中。
+        #   （查不到会落到 dept_belong_id__in=[] ⇒ 非超管恒返回空集，见 server.py:184 注释）
+        menu_button_ids = MenuButton.objects.filter(
+            Q(api=re_api) | Q(api='/api' + re_api), method=method
+        ).values_list('id', flat=True)
         role_permission_list = []
         if menu_button_ids:
             role_permission_list=RoleMenuButtonPermission.objects.filter(

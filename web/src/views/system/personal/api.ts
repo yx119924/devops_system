@@ -3,7 +3,7 @@ import { PageQuery, AddReq, DelReq, EditReq, InfoReq } from '@fast-crud/fast-cru
 import { apiPrefix } from '/@/views/system/messageCenter/api';
 export function GetUserInfo(query: PageQuery) {
 	return request({
-		url: '/api/system/user/user_info/',
+		url: '/system/user/user_info/',
 		method: 'get',
 		params: query,
 	});
@@ -15,7 +15,7 @@ export function GetUserInfo(query: PageQuery) {
  */
 export function updateUserInfo(data: AddReq) {
 	return request({
-		url: '/api/system/user/update_user_info/',
+		url: '/system/user/update_user_info/',
 		method: 'put',
 		data: data,
 	});
@@ -29,7 +29,7 @@ export function updateUserInfo(data: AddReq) {
  */
 export function GetSelfReceive(query: PageQuery) {
 	return request({
-		url: '/api/system/message_center/get_self_receive/',
+		url: '/system/message_center/get_self_receive/',
 		method: 'get',
 		params: query,
 	});
@@ -41,7 +41,7 @@ export function GetSelfReceive(query: PageQuery) {
  */
 export function UpdatePassword(data: EditReq) {
 	return request({
-		url: '/api/system/user/change_password/',
+		url: '/system/user/change_password/',
 		method: 'put',
 		data: data,
 	});
@@ -53,7 +53,7 @@ export function UpdatePassword(data: EditReq) {
  */
 export function uploadAvatar(data: AddReq) {
 	return request({
-		url: 'api/system/file/',
+		url: '/system/file/',
 		method: 'post',
 		data: data,
 		headers: {

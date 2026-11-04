@@ -1,7 +1,7 @@
 import { request } from '/@/utils/service';
 import { PageQuery, AddReq, DelReq, EditReq, InfoReq } from '@fast-crud/fast-crud';
 
-export const apiPrefix = '/api/bastion/dispatch/';
+export const apiPrefix = '/bastion/dispatch/';
 
 export function GetList(query: PageQuery) {
 	return request({ url: apiPrefix, method: 'get', params: query });
@@ -32,5 +32,5 @@ export function GetItems(id: number) {
 }
 
 export function GetDispatchOptions() {
-	return request({ url: '/api/cmdb/server/dispatch_options/', method: 'get' });
+	return request({ url: '/cmdb/server/dispatch_options/', method: 'get' });
 }

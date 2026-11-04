@@ -13,7 +13,7 @@ export const useDeptInfoStore = defineStore('deptInfo', {
       async requestDeptInfo() {
             // 请求部门信息
             const ret = await request({
-                url: '/api/system/dept/all_dept/'
+                url: '/system/dept/all_dept/'
             })
             this.list = ret.data
             this.tree = XEUtils.toArrayTree(ret.data,{parentKey:'parent',strict:true})

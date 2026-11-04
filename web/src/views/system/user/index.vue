@@ -31,7 +31,7 @@
         <el-card :body-style="{ height: '100%' }">
           <fs-crud ref="crudRef" v-bind="crudBinding">
             <template #actionbar-right>
-              <importExcel api="api/system/user/" v-auth="'user:Import'">{{ $t('message.pages.user.buttons.import') }}</importExcel>
+              <importExcel api="/system/user/" v-auth="'user:Import'">{{ $t('message.pages.user.buttons.import') }}</importExcel>
             </template>
             <template #cell_avatar="scope">
               <div v-if="scope.row.avatar" style="display: flex; justify-content: center; align-items: center;">

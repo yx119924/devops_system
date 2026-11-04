@@ -222,7 +222,7 @@ const onLanguageChange = async (lang: string) => {
 	await refreshRoutesForI18n();
 	// 持久化到后端 (FNT-03, INT-01 per D-01)
 	try {
-		await request({ url: '/api/system/user/update_language/', method: 'put', data: { language: lang } });
+		await request({ url: '/system/user/update_language/', method: 'put', data: { language: lang } });
 	} catch (e) {
 		console.warn('Failed to persist language preference:', e);
 		// Non-blocking: localStorage is the source of truth for frontend

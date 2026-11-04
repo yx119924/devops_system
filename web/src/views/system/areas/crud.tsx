@@ -138,7 +138,7 @@ export const createCrudOptions = function ({ crudExpose }: CreateCrudOptionsProp
 								return null;
 							}),
 							tableConfig: {
-								url: '/api/system/area/',
+								url: '/system/area/',
 								label: 'name',
 								value: 'id',
 								isTree: true,

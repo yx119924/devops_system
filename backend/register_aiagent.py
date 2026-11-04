@@ -4,7 +4,9 @@
 AI 运维助手 —— 后端落地脚本（幂等，可重复执行）
 
 一次做四件事：
-  1. 文件补丁：application/settings.py 注册 dvadmin.aiagent、application/urls.py 挂 api/aiagent/
+  1. 文件补丁：application/settings.py 注册 dvadmin.aiagent、application/urls.py 挂 aiagent/
+     ★ 2026-11-03 起 urls.py 已无 `api/` 前缀，脚本内的旧锚点 'path("api/...")' 不再匹配，
+       请勿直接运行；如需复用先把锚点改成 path("aiagent/") 这类新写法。
   2. 建菜单：父目录「AI 运维助手」+ 子菜单「模型配置」（可选「智能问答」）
   3. 建按钮权限：MenuButton（查询/新增/编辑/删除 + 测试连接 / 设为默认 / 护栏三项）
   4. 授权

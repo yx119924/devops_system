@@ -1,7 +1,7 @@
 import { request } from '/@/utils/service';
 import { AddReq, DelReq, EditReq, InfoReq, PageQuery } from '@fast-crud/fast-crud';
 
-export const apiPrefix = '/api/dvadmin_celery/task_detail/';
+export const apiPrefix = '/dvadmin_celery/task_detail/';
 
 export function GetList(query: PageQuery) {
     return request({

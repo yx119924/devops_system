@@ -1,6 +1,6 @@
 import { request } from '/@/utils/service';
 
-export const apiPrefix = '/api/alert/manage/';
+export const apiPrefix = '/alert/manage/';
 
 // 活跃告警列表
 export function GetActiveAlerts() {

@@ -3,7 +3,7 @@ import { PageQuery } from './types'
 
 export function getRoleList(query: PageQuery) {
   return request({
-    url: '/api/system/role/',
+    url: '/system/role/',
     method: 'get',
     params: query,
   });
@@ -11,7 +11,7 @@ export function getRoleList(query: PageQuery) {
 
 export function getMenuList(query: PageQuery) {
   return request({
-    url: '/api/system/menu/',
+    url: '/system/menu/',
     method: 'get',
     params: {is_catalog:0,...query},
   });
@@ -19,7 +19,7 @@ export function getMenuList(query: PageQuery) {
 
 export function getModelList() {
   return request({
-    url: '/api/system/column/get_models/',
+    url: '/system/column/get_models/',
     method: 'get',
   });
 }

@@ -2,7 +2,7 @@
 	<fs-page>
 		<fs-crud ref="crudRef" v-bind="crudBinding">
 			<template #actionbar-right v-if="canImport">
-				<importExcel api="api/cmdb/server/">批量导入</importExcel>
+				<importExcel api="/cmdb/server/">批量导入</importExcel>
 			</template>
 		</fs-crud>
 		<webSsh v-model="sshVisible" :server="sshServer" />

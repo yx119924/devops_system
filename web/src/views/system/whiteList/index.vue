@@ -12,7 +12,7 @@
                 <li>第三方系统调用的接口</li>
                 <li>不需要登录即可访问的接口</li>
             </ul>
-            <p><strong>假设你有一个统计报表接口 /api/system/dashboard/stats/:</strong></p>
+            <p><strong>假设你有一个统计报表接口 /system/dashboard/stats/:</strong></p>
             <ul>
                 <li><strong>不加白名单:</strong>用户需要被分配该接口权限才能访问;即使有权限,也只能看到自己部门的数据</li>
                 <li><strong>加入白名单(enable_datasource=False):</strong>所有登录用户都可以访问,不需要额外分配权限;可以看到全部数据,不受部门限制</li>

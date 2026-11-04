@@ -3,11 +3,11 @@ import { PageQuery, AddReq, DelReq, EditReq, InfoReq } from '@fast-crud/fast-cru
 
 type GetListType = PageQuery & { show_all: string };
 
-export const apiPrefix = '/api/system/user/';
+export const apiPrefix = '/system/user/';
 
 // export function GetDept(query: PageQuery) {
 // 	return request({
-// 		url: '/api/system/dept/dept_all/',
+// 		url: '/system/dept/dept_all/',
 // 		method: 'get',
 // 		params: query,
 // 	});
@@ -61,14 +61,14 @@ export function exportData(params: any) {
 
 export function getDeptInfoById(id: string, type: string) {
 	return request({
-		url: `/api/system/dept/dept_info/?dept_id=${id}&show_all=${type}`,
+		url: `/system/dept/dept_info/?dept_id=${id}&show_all=${type}`,
 		method: 'get',
 	});
 }
 
 export function resetPwd(id: number, data: { [key: string]: string }) {
 	return request({
-		url: `/api/system/user/${id}/reset_password/`,
+		url: `/system/user/${id}/reset_password/`,
 		method: 'put',
 		data,
 	});

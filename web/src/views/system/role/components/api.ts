@@ -6,7 +6,7 @@ import XEUtils from 'xe-utils';
  */
 export function getRoleMenu(query: object) {
 	return request({
-		url: '/api/system/role_menu_button_permission/get_role_menu/',
+		url: '/system/role_menu_button_permission/get_role_menu/',
 		method: 'get',
 		params: query,
 	}).then((res: any) => {
@@ -20,7 +20,7 @@ export function getRoleMenu(query: object) {
  */
 export function setRoleMenu(data: object) {
 	return request({
-		url: '/api/system/role_menu_button_permission/set_role_menu/',
+		url: '/system/role_menu_button_permission/set_role_menu/',
 		method: 'put',
 		data,
 	});
@@ -31,7 +31,7 @@ export function setRoleMenu(data: object) {
  */
 export function getRoleMenuBtnField(query: object) {
 	return request({
-		url: '/api/system/role_menu_button_permission/get_role_menu_btn_field/',
+		url: '/system/role_menu_button_permission/get_role_menu_btn_field/',
 		method: 'get',
 		params: query,
 	});
@@ -43,7 +43,7 @@ export function getRoleMenuBtnField(query: object) {
  */
 export function batchSetRoleMenuBtn(data: object) {
 	return request({
-		url: '/api/system/role_menu_button_permission/batch_set_role_menu_btn/',
+		url: '/system/role_menu_button_permission/batch_set_role_menu_btn/',
 		method: 'put',
 		data,
 	});
@@ -55,7 +55,7 @@ export function batchSetRoleMenuBtn(data: object) {
  */
 export function setRoleMenuBtn(data: object) {
 	return request({
-		url: '/api/system/role_menu_button_permission/set_role_menu_btn/',
+		url: '/system/role_menu_button_permission/set_role_menu_btn/',
 		method: 'put',
 		data,
 	});
@@ -67,7 +67,7 @@ export function setRoleMenuBtn(data: object) {
  */
 export function setRoleMenuField(roleId: string | number | undefined, data: object) {
 	return request({
-		url: `/api/system/role_menu_button_permission/${roleId}/set_role_menu_field/`,
+		url: `/system/role_menu_button_permission/${roleId}/set_role_menu_field/`,
 		method: 'put',
 		data,
 	});
@@ -80,7 +80,7 @@ export function setRoleMenuField(roleId: string | number | undefined, data: obje
  */
 export function setRoleMenuBtnDataRange(data: object) {
 	return request({
-		url: '/api/system/role_menu_button_permission/set_role_menu_btn_data_range/',
+		url: '/system/role_menu_button_permission/set_role_menu_btn_data_range/',
 		method: 'put',
 		data,
 	});
@@ -93,7 +93,7 @@ export function setRoleMenuBtnDataRange(data: object) {
  */
 export function getRoleToDeptAll(query: object) {
 	return request({
-		url: '/api/system/role_menu_button_permission/role_to_dept_all/',
+		url: '/system/role_menu_button_permission/role_to_dept_all/',
 		method: 'get',
 		params: query,
 	});
@@ -106,7 +106,7 @@ export function getRoleToDeptAll(query: object) {
  */
 export function getAllUsers() {
 	return request({
-		url: '/api/system/user/',
+		url: '/system/user/',
 		method: 'get',
 		params: { limit: 999 },
 	}).then((res: any) => {
@@ -126,7 +126,7 @@ export function getAllUsers() {
  */
 export function setRoleUsers(roleId: string | number | undefined, data: object) {
 	return request({
-		url: `/api/system/role/${roleId}/set_role_users/`,
+		url: `/system/role/${roleId}/set_role_users/`,
 		method: 'put',
 		data,
 	});

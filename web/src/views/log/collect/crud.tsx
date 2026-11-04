@@ -12,7 +12,7 @@ async function loadServerMap(crudExpose: any): Promise<Record<number, any>> {
 	let list: any[] = [];
 	try {
 		const dictMap: any = crudExpose?.crudBinding?.value?.dict || {};
-		const d = dictMap['dispatch_options'] || dictMap['url#/api/cmdb/server/dispatch_options/'];
+		const d = dictMap['dispatch_options'] || dictMap['url#/cmdb/server/dispatch_options/'];
 		list = d?.data || d?.dict?.data || [];
 	} catch (e) {
 		console.warn('[logCollect] dict 缓存未命中，回退调接口', e);
@@ -255,7 +255,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
 					title: 'ES 数据源',
 					type: 'dict-select',
 					dict: dict({
-						url: '/api/log/es/all/',
+						url: '/log/es/all/',
 						value: 'id',
 						label: 'name',
 						getDataFromUrl: true,
@@ -270,7 +270,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
 					title: '目标服务器',
 					type: 'dict-select',
 					dict: dict({
-						url: '/api/cmdb/server/dispatch_options/',
+						url: '/cmdb/server/dispatch_options/',
 						value: 'id',
 						label: 'hostname',
 						getDataFromUrl: true,
@@ -298,7 +298,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
 					title: '凭据',
 					type: 'dict-select',
 					dict: dict({
-						url: '/api/bastion/credential/all/',
+						url: '/bastion/credential/all/',
 						value: 'id',
 						label: 'name',
 						getDataFromUrl: true,

@@ -1,8 +1,8 @@
 import { request } from '/@/utils/service';
 import { PageQuery, AddReq, DelReq, EditReq, InfoReq } from '@fast-crud/fast-crud';
 
-export const apiPrefix = '/api/aiagent/provider/';
-export const guardPrefix = '/api/aiagent/guard/';
+export const apiPrefix = '/aiagent/provider/';
+export const guardPrefix = '/aiagent/guard/';
 
 // ---------- 供应商 ----------
 export function GetList(query: PageQuery) {

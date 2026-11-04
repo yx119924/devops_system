@@ -2,7 +2,7 @@ import { request } from '/@/utils/service';
 import { PageQuery, AddReq, DelReq, EditReq, InfoReq } from '@fast-crud/fast-crud';
 import XEUtils from 'xe-utils';
 
-export const apiPrefix = '/api/system/dictionary/';
+export const apiPrefix = '/system/dictionary/';
 export function GetList(query: PageQuery) {
     return request({
         url: apiPrefix,

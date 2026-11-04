@@ -27,7 +27,7 @@ async function buildTargets(crudExpose: any, cmdbIds: number[] | null | undefine
     try {
       // fast-crud 的 dict 缓存结构：crudExpose.crudBinding.value.dict['dispatch_options'] 是 dict 对象
       const dictMap: any = crudExpose?.crudBinding?.value?.dict || {};
-      const dispatchDict = dictMap['dispatch_options'] || dictMap['url#/api/cmdb/server/dispatch_options/'];
+      const dispatchDict = dictMap['dispatch_options'] || dictMap['url#/cmdb/server/dispatch_options/'];
       const list: any[] = dispatchDict?.data || dispatchDict?.dict?.data || [];
       serverMap = Object.fromEntries(list.map((s: any) => [s.id, s]));
     } catch (e) {
@@ -247,7 +247,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           title: '凭据',
           type: 'dict-select',
           dict: dict({
-            url: '/api/bastion/credential/all/',
+            url: '/bastion/credential/all/',
             value: 'id',
             label: 'name',
             getDataFromUrl: true,
@@ -262,7 +262,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           title: 'CMDB 目标',
           type: 'dict-select',
           dict: dict({
-            url: '/api/cmdb/server/dispatch_options/',
+            url: '/cmdb/server/dispatch_options/',
             value: 'id',
             label: 'hostname',
             getDataFromUrl: true,

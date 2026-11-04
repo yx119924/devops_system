@@ -156,7 +156,7 @@ export const useFrontendMenuStore = defineStore('frontendMenu',{
         async requestMenu(){
            const { themeConfig } = storeToRefs(useThemeConfig(pinia))
            return  request({
-                url: '/api/system/menu/web_router/',
+                url: '/system/menu/web_router/',
                 method: 'get',
                 params:{ language: themeConfig.value.globalI18n },
             }).then((res:any)=>{

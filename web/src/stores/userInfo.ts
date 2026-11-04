@@ -81,7 +81,7 @@ export const useUserInfo = defineStore('userInfo', {
 		},
 		async getApiUserInfo() {
 			return request({
-				url: '/api/system/user/user_info/',
+				url: '/system/user/user_info/',
 				method: 'get',
 			}).then((res:any)=>{
 				this.userInfos.id = res.data.id;

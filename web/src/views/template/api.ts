@@ -1,7 +1,7 @@
 import { request,downloadFile } from '/@/utils/service';
 import { PageQuery, AddReq, DelReq, EditReq, InfoReq } from '@fast-crud/fast-crud';
 
-export const apiPrefix = '/api/VIEWSETNAME/';
+export const apiPrefix = '/VIEWSETNAME/';
 
 export function GetList(query: PageQuery) {
 	return request({

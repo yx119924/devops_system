@@ -7,6 +7,10 @@
 ★ 本仓库交付时 settings.py / urls.py 里 dvadmin.jenkins 已经注册完毕，
   正常从零部署**不需要**执行本脚本；保留它是为了以后新增 app 时作参考。
 
+★ 2026-11-03 起 urls.py 的路由已去掉 `api/` 前缀（对外前缀改由 nginx 的 /devops 承担），
+  本脚本下方的字符串锚点 'path("api/...")' 已不再匹配当前文件 —— **请勿直接运行**，
+  如需复用请先把锚点改成 path("alert/") 这类新写法。
+
 用法（django 容器内）：
     docker exec dvadmin3-django python register_jenkins.py
 """

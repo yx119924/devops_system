@@ -154,7 +154,7 @@ const toggleRowSelection = () => {
 					title: t('message.pages.menu.buttons.model'),
 					type: 'dict-select',
 					dict:dict({
-						url:'/api/system/column/get_models/',
+						url:'/system/column/get_models/',
 						label:'title',
 						value:'key'
 					}),

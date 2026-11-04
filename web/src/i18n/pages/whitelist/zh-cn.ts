@@ -24,7 +24,7 @@ export default {
                     urlPlaceholder: '请输入URL',
                     descriptionPlaceholder: '请输入描述',
                     keywordPlaceholder: '请输入关键词',
-                    urlHelper: '支持模糊匹配，如 /api/user/* 可匹配 /api/user/1、/api/user/2',
+                    urlHelper: '支持模糊匹配，如 /user/* 可匹配 /user/1、/user/2',
                 },
                 validation: {
                     urlRequired: '请输入URL',

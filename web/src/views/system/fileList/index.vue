@@ -21,7 +21,7 @@
     </FileSelector>
     <fs-crud ref="crudRef" v-bind="crudBinding">
       <template #actionbar-left="scope">
-        <el-upload :action="getBaseURL() + 'api/system/file/'" :multiple="false"
+        <el-upload :action="getBaseURL() + 'system/file/'" :multiple="false"
           :headers="{ Authorization: 'JWT ' + Session.get('token') }"
           :on-success="() => { crudExpose.doRefresh(); fileSelectorRef?.listRequest?.(); }" :drag="false" :show-file-list="false">
           <el-button type="primary" icon="plus">{{ $t('message.pages.fileList.buttons.upload') }}</el-button>

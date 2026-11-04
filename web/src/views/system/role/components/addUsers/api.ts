@@ -10,7 +10,7 @@ import { UserPageQuery} from '@fast-crud/fast-crud';
 export function getRoleUsersUnauthorized(query: UserPageQuery) {
 	query["authorized"] = 0;  // 未授权的用户
 	return request({
-		url: '/api/system/role/get_role_users/',
+		url: '/system/role/get_role_users/',
 		method: 'get',
 		params: query,
 	});
@@ -23,7 +23,7 @@ export function getRoleUsersUnauthorized(query: UserPageQuery) {
  */
 export function addRoleUsers(role_id: number, users_id: Array<Number>) {
 	return request({ 
-		url: `/api/system/role/${role_id}/add_role_users/`,
+		url: `/system/role/${role_id}/add_role_users/`,
 		method: 'post',
 		data: {users_id: users_id},
 	});

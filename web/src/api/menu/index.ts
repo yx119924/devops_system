@@ -10,7 +10,7 @@ export function useMenuApi() {
 	return {
 		getSystemMenu: (params?: object) => {
 			return request({
-				url: '/api/system/menu/web_router/',
+				url: '/system/menu/web_router/',
 				method: 'get',
 				params,
 			});

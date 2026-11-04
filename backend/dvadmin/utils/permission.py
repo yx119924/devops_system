@@ -118,8 +118,13 @@ class CustomPermission(BasePermission):
                     item.get('permission__method')) + '$' for item in userApiList if item.get('permission__api')]
             new_api_ist = api_white_list + ApiList
             new_api = api + ":" + str(method)
+            # ★ 2026-11-04 前缀改造兼容：MenuButton.api / ApiWhiteList 里的历史记录仍带
+            #   `/api` 前缀，而对外前缀改为 /devops 后 request.path 已不含它。
+            #   两条都试，改造前后都能命中；此处末行是 return False（默认拒绝），
+            #   只要漏配就是全站 403，故必须兼容而不能只改数据。
             for item in new_api_ist:
-                matchObj = re.match(item, new_api, re.M | re.I)
+                matchObj = re.match(item, new_api, re.M | re.I) or re.match(
+                    item, "/api" + new_api, re.M | re.I)
                 if matchObj is None:
                     continue
                 else:

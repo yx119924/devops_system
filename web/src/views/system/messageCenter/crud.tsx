@@ -175,7 +175,7 @@ export default function ({ crudExpose, context }: CreateCrudOptionsProps): Creat
 								return null;
 							}),
 							tableConfig: {
-								url: '/api/system/user/',
+								url: '/system/user/',
 								label: 'name',
 								value: 'id',
 								isMultiple: true,
@@ -230,7 +230,7 @@ export default function ({ crudExpose, context }: CreateCrudOptionsProps): Creat
 								return null;
 							}),
 							tableConfig: {
-								url: '/api/system/role/',
+								url: '/system/role/',
 								label: 'name',
 								value: 'id',
 								isMultiple: true,
@@ -284,7 +284,7 @@ export default function ({ crudExpose, context }: CreateCrudOptionsProps): Creat
 								return form.dept_info;
 							}),
 							tableConfig: {
-								url: '/api/system/dept/all_dept/',
+								url: '/system/dept/all_dept/',
 								label: 'name',
 								value: 'id',
 								isTree: true,

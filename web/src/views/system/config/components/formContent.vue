@@ -165,7 +165,7 @@
 								columns: item.setting.searchField,
 							}"
                 :dict="{
-								url: '/api/system/system_config/get_table_data/' + item.id + '/',
+								url: '/system/system_config/get_table_data/' + item.id + '/',
 								value: item.setting.primarykey,
 								label: item.setting.field,
 							}"
@@ -219,7 +219,7 @@ const props = defineProps(['options', 'editableTabsItem']);
 let formData: any = ref({});
 let formList: any = ref([]);
 const formRef =  ref<FormInstance>()
-let uploadUrl = ref(getBaseURL() + 'api/system/file/');
+let uploadUrl = ref(getBaseURL() + 'system/file/');
 let uploadHeaders = ref({
   Authorization: 'JWT ' + Session.get('token'),
 });

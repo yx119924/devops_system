@@ -692,7 +692,7 @@ const getFileName = (url: string) => {
 };
 
 // 上传URL
-const uploadUrl = computed(() => getBaseURL() + 'api/system/file/');
+const uploadUrl = computed(() => getBaseURL() + 'system/file/');
 
 // 上传请求头
 const uploadHeaders = computed(() => ({
@@ -835,7 +835,7 @@ const getFormList = async () => {
 			if (!dictOptionsCache.value[item.setting]) {
 				try {
 					const dictRes: any = await request({
-						url: '/api/init/dictionary/',
+						url: '/init/dictionary/',
 						method: 'get',
 						params: {
 							dictionary_key: item.setting,
@@ -939,7 +939,7 @@ const loadDictOptions = async (item: any) => {
 	try {
 		// setting 是字典的 value，使用专用的初始化接口
 		const res: any = await request({
-			url: '/api/init/dictionary/',
+			url: '/init/dictionary/',
 			method: 'get',
 			params: {
 				dictionary_key: item.setting,

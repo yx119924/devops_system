@@ -135,7 +135,7 @@ export default defineComponent({
 			});
 		};
 		const applyBtnClick = async () => {
-			window.open(getBaseURL('/api/system/apply_for_trial/'));
+			window.open(getBaseURL('/system/apply_for_trial/'));
 		};
     const refreshCaptcha = async () => {
 			state.ruleForm.captcha=''

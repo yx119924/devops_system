@@ -65,12 +65,12 @@ export default defineComponent({
 		/**
 		 * 拉取"这台服务器上我能用的凭据"。
 		 *
-		 * 走 `/api/cmdb/server/{id}/ssh_credentials/` 而不是凭据模块的
-		 * `/api/bastion/credential/`：
+		 * 走 `/cmdb/server/{id}/ssh_credentials/` 而不是凭据模块的
+		 * `/bastion/credential/`：
 		 * - 后者属「凭据管理」模块，开发/测试这类角色没有该按钮权限，请求直接 4000
 		 *   （曾经的表现就是下拉永远是"无数据"，弹窗里根本无法连接）；
 		 * - 而且 `CustomPermission` 是**前缀**匹配，任何
-		 *   `/api/bastion/credential/xxx/` 都会落到同一条按钮权限上，绕不开；
+		 *   `/bastion/credential/xxx/` 都会落到同一条按钮权限上，绕不开；
 		 * - 该接口只吐 id/name/username/auth_type，密码与私钥是 write_only，不会外泄，
 		 *   且服务端已按资产授权校验"这台机器你看不看得到"。
 		 */
@@ -80,7 +80,7 @@ export default defineComponent({
 			if (!props.server) return;
 			try {
 				const res: any = await request({
-					url: `/api/cmdb/server/${props.server.id}/ssh_credentials/`,
+					url: `/cmdb/server/${props.server.id}/ssh_credentials/`,
 					method: 'get',
 				});
 				if (res.code !== 2000) {

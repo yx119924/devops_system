@@ -2,13 +2,13 @@ import { request } from "/@/utils/service";
 
 export function getCaptcha() {
     return request({
-        url: '/api/captcha/',
+        url: '/captcha/',
         method: 'get',
     });
 }
 export function login(params: object) {
     return request({
-        url: '/api/login/',
+        url: '/login/',
         method: 'post',
         data: params
     });
@@ -16,7 +16,7 @@ export function login(params: object) {
 
 export function loginChangePwd(data: object) {
     return request({
-        url: '/api/system/user/login_change_password/',
+        url: '/system/user/login_change_password/',
         method: 'post',
         data: data
     });
@@ -24,14 +24,14 @@ export function loginChangePwd(data: object) {
 
 export function getUserInfo() {
     return request({
-        url: '/api/system/user/user_info/',
+        url: '/system/user/user_info/',
         method: 'get',
     });
 }
 
 export function getBackends() {
     return request({
-        url: '/api/dvadmin3_social_oauth2/backend/get_login_backend/',
+        url: '/dvadmin3_social_oauth2/backend/get_login_backend/',
         method: 'get',
     });
 }

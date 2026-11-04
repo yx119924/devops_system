@@ -213,7 +213,7 @@ export const createCrudOptions = function ({ crudExpose }: CreateCrudOptionsProp
                     type: 'dict-tree',
                     dict: dict({
                         isTree: true,
-                        url: '/api/system/dept/all_dept/',
+                        url: '/system/dept/all_dept/',
                         value: 'id',
                         label: 'name'
                     }),
@@ -249,7 +249,7 @@ export const createCrudOptions = function ({ crudExpose }: CreateCrudOptionsProp
                     type: 'dict-tree',
                     dict: dict({
                         isTree: true,
-                        url: '/api/system/dept/all_dept/',
+                        url: '/system/dept/all_dept/',
                         value: 'id',
                         label: 'name'
                     }),
@@ -284,7 +284,7 @@ export const createCrudOptions = function ({ crudExpose }: CreateCrudOptionsProp
                     },
                     type: 'dict-select',
                     dict: dict({
-                        url: '/api/system/role/',
+                        url: '/system/role/',
                         value: 'id',
                         label: 'name',
                     }),

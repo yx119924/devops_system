@@ -47,7 +47,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           title: '通知渠道',
           type: 'dict-select',
           dict: dict({
-            url: '/api/alert/channel/all/',
+            url: '/alert/channel/all/',
             value: 'id',
             label: 'name',
             getDataFromUrl: true,

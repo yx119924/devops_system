@@ -112,7 +112,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
 					title: '默认凭据',
 					type: 'dict-select',
 					dict: dict({
-						url: '/api/bastion/credential/all/',
+						url: '/bastion/credential/all/',
 						value: 'id',
 						label: 'name',
 						getDataFromUrl: true,

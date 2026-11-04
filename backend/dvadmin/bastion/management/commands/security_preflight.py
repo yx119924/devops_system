@@ -43,11 +43,11 @@ class Command(BaseCommand):
                 if expected - actual:
                     errors.append(f'{table} 缺少字段：' + ', '.join(sorted(expected - actual)))
         # ★ 本交付未启用 Web SSH 票据（terminal 路由未挂载），故不检查该路径。
-        # ★ 本交付也未接入 Grafana SSO，因此**不存在** /api/monitor/grafana/{id}/entry/；
+        # ★ 本交付也未接入 Grafana SSO，因此**不存在** /monitor/grafana/{id}/entry/；
         #   这里改查确实存在的 grafana sources 接口，以验证该路由已挂载。
-        for path in ['/api/bastion/dispatch/',
-                     '/api/bastion/session/1/recording/', '/api/cmdb/server/dispatch_options/',
-                     '/api/monitor/grafana/sources/', '/api/alert/webhook/receiver/']:
+        for path in ['/bastion/dispatch/',
+                     '/bastion/session/1/recording/', '/cmdb/server/dispatch_options/',
+                     '/monitor/grafana/sources/', '/alert/webhook/receiver/']:
             try:
                 resolve(path)
             except Exception:

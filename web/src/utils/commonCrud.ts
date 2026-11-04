@@ -62,7 +62,7 @@ export const commonCrudConfig = (options: CrudOptions = {}) => {
 				show: merged.dept_belong_id.search,
 			},
 			dict: dict({
-				url: '/api/system/dept/all_dept/',
+				url: '/system/dept/all_dept/',
 				isTree: true,
 				value: 'id',
 				label: 'name',

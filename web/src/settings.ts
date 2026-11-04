@@ -100,7 +100,7 @@ export default {
         app.use(FsExtendsUploader, {
             defaultType: "form",
             form: {
-                action: `/api/system/file/`,
+                action: `/system/file/`,
                 name: "file",
                 withCredentials: false,
                 uploadRequest: async ({ action, file, onProgress }: { action: string; file: any; onProgress: Function }) => {

@@ -1,7 +1,7 @@
 import { request } from '/@/utils/service';
 import { PageQuery, AddReq, DelReq, EditReq, InfoReq } from '@fast-crud/fast-crud';
 
-export const apiPrefix = '/api/cmdb/server/';
+export const apiPrefix = '/cmdb/server/';
 
 export function GetList(query: PageQuery) {
 	return request({ url: apiPrefix, method: 'get', params: query });
@@ -24,7 +24,7 @@ export function DelObj(id: DelReq) {
 }
 
 // ---------------- 资产授权（ServerGrant）----------------
-export const grantPrefix = '/api/cmdb/server_grant/';
+export const grantPrefix = '/cmdb/server_grant/';
 
 /** 授权弹窗的下拉数据：可授权的角色 + 用户 */
 export function GetGrantOptions() {

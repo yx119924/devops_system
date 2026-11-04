@@ -78,7 +78,7 @@ export const createCrudOptions = function ({ crudExpose }: CreateCrudOptionsProp
           title: '关联服务器',
           type: 'dict-select',
           dict: dict({
-            url: '/api/cmdb/server/all/',
+            url: '/cmdb/server/all/',
             value: 'id',
             label: 'hostname',
           }),

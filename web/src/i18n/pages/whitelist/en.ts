@@ -24,7 +24,7 @@ export default {
                     urlPlaceholder: 'Enter URL',
                     descriptionPlaceholder: 'Enter description',
                     keywordPlaceholder: 'Enter keyword',
-                    urlHelper: 'Supports fuzzy matching, e.g. /api/user/* matches /api/user/1, /api/user/2',
+                    urlHelper: 'Supports fuzzy matching, e.g. /user/* matches /user/1, /user/2',
                 },
                 validation: {
                     urlRequired: 'URL is required',

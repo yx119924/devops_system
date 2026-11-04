@@ -175,7 +175,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           },
           dict: dict({
             isTree: true,
-            url: '/api/system/dept/all_dept/',
+            url: '/system/dept/all_dept/',
             value: 'id',
             label: 'name'
           }),

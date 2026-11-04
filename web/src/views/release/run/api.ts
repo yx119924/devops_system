@@ -2,10 +2,10 @@ import { request } from '/@/utils/service';
 import { PageQuery, InfoReq } from '@fast-crud/fast-crud';
 
 /**
- * ★ 路径前缀说明同 pipeline/api.ts：这里带一层 /api，配合 nginx 的 rewrite 刚好命中
- *   django 的 `/api/release/run/`。别改成一层。
+ * ★ 路径前缀说明同 pipeline/api.ts：外层前缀由 baseURL 承担（生产 `/devops`），
+ *   这里只写 `/release/run/`，nginx 剥掉 `/devops` 后命中 django 同名路由。
  */
-export const apiPrefix = '/api/release/run/';
+export const apiPrefix = '/release/run/';
 
 export function GetList(query: PageQuery) {
 	return request({ url: apiPrefix, method: 'get', params: query });

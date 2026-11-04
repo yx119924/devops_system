@@ -2,13 +2,12 @@ import { request } from '/@/utils/service';
 import { PageQuery, AddReq, DelReq, EditReq, InfoReq } from '@fast-crud/fast-crud';
 
 /**
- * ★ 路径前缀说明：这里写的是 `/api/log/collect/`（**带一层 /api**）。
- * 前端 baseURL 也是 `/api`，所以实际请求是 `/api/api/log/collect/`；
- * nginx 的 `rewrite ^/api/(.*)$ /$1 break;` 会削掉一层 → django 收到
- * `/api/log/collect/`，正好命中后端路由。这是本项目既定写法，
- * 别"顺手改成一层"—— 改了会 404。
+ * ★ 路径前缀说明：外层前缀统一由 baseURL 承担（生产 `/devops`），
+ * 这里只写业务段 `/log/collect/`，实际请求是 `/devops/log/collect/`；
+ * nginx 的 `rewrite ^/devops/(.*)$ /$1 break;` 剥掉外层后，django 收到
+ * `/log/collect/`，命中后端 `path("log/...")`。
  */
-export const apiPrefix = '/api/log/collect/';
+export const apiPrefix = '/log/collect/';
 
 export function GetList(query: PageQuery) {
 	return request({ url: apiPrefix, method: 'get', params: query });
@@ -42,12 +41,12 @@ export function GetOptions() {
 
 /** CMDB 服务器下拉（复用命令下发那份，已按资产授权过滤） */
 export function GetServerOptions() {
-	return request({ url: '/api/cmdb/server/dispatch_options/', method: 'get' });
+	return request({ url: '/cmdb/server/dispatch_options/', method: 'get' });
 }
 
 /** ES 数据源下拉 */
 export function GetEsSources() {
-	return request({ url: '/api/log/es/all/', method: 'get' });
+	return request({ url: '/log/es/all/', method: 'get' });
 }
 
 /** 环境检测（只读）。不传 serverId 则对所有目标执行 */

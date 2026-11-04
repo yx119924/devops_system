@@ -114,7 +114,7 @@ export const createCrudOptions = function ({
                     title: t('message.pages.demo.table.columns.testComponent'),
                     dict:dict({
                         url({form}){
-                            return  '/api/system/role/'
+                            return  '/system/role/'
                         },
                         label:'name',
                         value:'id'

@@ -9,7 +9,7 @@ export const BtnPermissionStore = defineStore('BtnPermission', {
     actions: {
         async getBtnPermissionStore() {
             const ret: any = await request({
-                url: '/api/system/menu_button/menu_button_all_permission/',
+                url: '/system/menu_button/menu_button_all_permission/',
                 method: 'get',
             });
             // 转换数据格式并保存到pinia

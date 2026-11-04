@@ -430,8 +430,8 @@ API_LOG_ENABLE = True
 API_LOG_METHODS = ["POST", "UPDATE", "DELETE", "PUT"]  # ['POST', 'DELETE']
 API_MODEL_MAP = {
     "/token/": "登录模块",
-    "/api/login/": "登录模块",
-    "/api/plugins_market/plugins/": "插件市场",
+    "/login/": "登录模块",
+    "/plugins_market/plugins/": "插件市场",
 }
 
 DJANGO_CELERY_BEAT_TZ_AWARE = False

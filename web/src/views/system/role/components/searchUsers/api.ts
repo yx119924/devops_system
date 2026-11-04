@@ -9,7 +9,7 @@ import { UserPageQuery} from '@fast-crud/fast-crud';
 export function getRoleUsersAuthorized(query: UserPageQuery) {
 	query["authorized"] = 1;  // 授权的用户
 	return request({
-		url: '/api/system/role/get_role_users/',
+		url: '/system/role/get_role_users/',
 		method: 'get',
 		params: query,
 	});
@@ -22,7 +22,7 @@ export function getRoleUsersAuthorized(query: UserPageQuery) {
  */
 export function removeRoleUser(role_id: number, user_id: Array<number>) {
 	return request({
-		url: `/api/system/role/${role_id}/remove_role_user/`,
+		url: `/system/role/${role_id}/remove_role_user/`,
 		method: 'delete',
 		data: {user_id: user_id},
 	});
@@ -37,7 +37,7 @@ export function removeRoleUser(role_id: number, user_id: Array<number>) {
  */
 export function addRoleUsers(role_id: number, data: Array<Number>) {
 	return request({ 
-		url: `/api/system/role/${role_id}/add_role_users/`,
+		url: `/system/role/${role_id}/add_role_users/`,
 		method: 'post',
 		data: {users_id: data},
 	});

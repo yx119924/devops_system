@@ -251,7 +251,7 @@ export default defineComponent({
     ];
 
     // ---------------- 模块可见性 ----------------
-    // 后端 /api/dashboard/stats/ 返回 menus：
+    // 后端 /dashboard/stats/ 返回 menus：
     //   null      → 不受限（超级管理员）
     //   string[]  → 该账号可见菜单的 web_path 全集
     // 用它来裁剪首页入口，保证"首页看得到的入口" = "真能点进去的页面"，
@@ -287,7 +287,7 @@ export default defineComponent({
 
     const fetchStats = async () => {
       try {
-        const res: any = await request({ url: '/api/dashboard/stats/', method: 'get' });
+        const res: any = await request({ url: '/dashboard/stats/', method: 'get' });
         const d = res?.data || {};
         serverTotal.value = d.server?.total ?? 0;
         serverOnline.value = d.server?.online ?? 0;

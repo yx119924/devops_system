@@ -129,7 +129,7 @@
             <slot name="actionbar-right" v-bind="{}">
               <el-button type="default" circle icon="refresh" @click="listRequest" />
               <template v-if="tabsActived > 3 ? isSuperTenent : true">
-                <el-upload ref="uploadRef" :action="getBaseURL() + 'api/system/file/'" :multiple="false" :drag="false"
+                <el-upload ref="uploadRef" :action="getBaseURL() + 'system/file/'" :multiple="false" :drag="false"
                   :headers="{ Authorization: 'JWT ' + Session.get('token') }"
                   :data="{ upload_method: 1 }" :show-file-list="true" :accept="AcceptList[tabsActived % 4]"
                   :on-success="() => { listRequest(); listRequestAll(); uploadRef.clearFiles(); }"
@@ -253,7 +253,7 @@ const props = defineProps({
 
 const selectVisiable = ref<boolean>(false);
 const tabsActived = ref<number>([3, 2, 1, 0][((props.tabsShow & (props.tabsShow - 1)) === 0) ? Math.log2(props.tabsShow) : 3]);
-const fileApiPrefix = '/api/system/file/';
+const fileApiPrefix = '/system/file/';
 const fileApi = {
   GetList: (query: UserPageQuery) => request({ url: fileApiPrefix, method: 'get', params: query }),
   AddObj: (obj: AddReq) => request({ url: fileApiPrefix, method: 'post', data: obj }),
@@ -394,7 +394,7 @@ const confirmNetUrl = () => {
     let form = new FormData();
     form.append('file', file);
     form.append('upload_method', '1');
-    fetch(getBaseURL() + 'api/system/file/', { 
+    fetch(getBaseURL() + 'system/file/', { 
       method: 'post', 
       body: form,
       headers: {

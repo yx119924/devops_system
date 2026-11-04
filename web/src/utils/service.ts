@@ -157,7 +157,7 @@ function createService() {
 					break;
 				case 404:
 					// ★ 弹窗文案里不出现接口路径：原写法用 requestAddressError 并把
-					//   config.url 插进 {url}，用户会看到「请求地址出错: /api/...」。
+					//   config.url 插进 {url}，用户会看到「请求地址出错: /system/...」。
 					//   改成三语言都已存在、且不含路径的 endpointNotFound。
 					//   这里不用像 notifyError 那样补打 console —— 本分支随后走
 					//   errorLog(error)，而 console.error 打的是**整个 axios error

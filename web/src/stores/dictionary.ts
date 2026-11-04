@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { DictionaryStates } from './interface';
 import { request } from '../utils/service';
 
-export const urlPrefix = '/api/init/dictionary/';
+export const urlPrefix = '/init/dictionary/';
 export const BUTTON_VALUE_TO_COLOR_MAPPING: any = {
 	1: 'success',
 	true: 'success',
@@ -34,7 +34,7 @@ export const DictionaryStore = defineStore('Dictionary', {
 	actions: {
 		async getSystemDictionarys() {
 			request({
-				url: '/api/init/dictionary/?dictionary_key=all',
+				url: '/init/dictionary/?dictionary_key=all',
 				method: 'get',
 			}).then((ret: { data: [] }) => {
 				// 转换数据格式并保存到pinia

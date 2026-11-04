@@ -36,7 +36,7 @@ export default defineComponent({
 		const context: any = {
 			componentName: instance?.type.name,
 			openReplay: async (row: any) => {
-				const response: any = await request({ url: `/api/bastion/session/${row.id}/recording/`, method: 'get', responseType: 'blob' });
+				const response: any = await request({ url: `/bastion/session/${row.id}/recording/`, method: 'get', responseType: 'blob' });
 				const blob = response instanceof Blob ? response : response.data;
 				if (!(blob instanceof Blob)) throw new Error('录像下载失败');
 				replaySrc.value = URL.createObjectURL(blob);

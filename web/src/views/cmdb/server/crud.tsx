@@ -83,7 +83,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           title: '机房',
           type: 'dict-select',
           dict: dict({
-            url: '/api/cmdb/idc/all/',
+            url: '/cmdb/idc/all/',
             value: 'id',
             label: 'name',
           }),
@@ -94,7 +94,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           title: '环境',
           type: 'dict-select',
           dict: dict({
-            url: '/api/cmdb/environment/all/',
+            url: '/cmdb/environment/all/',
             value: 'id',
             label: 'name',
           }),
@@ -105,7 +105,7 @@ export const createCrudOptions = function ({ crudExpose, context }: CreateCrudOp
           title: '业务线',
           type: 'dict-select',
           dict: dict({
-            url: '/api/cmdb/business_line/all/',
+            url: '/cmdb/business_line/all/',
             value: 'id',
             label: 'name',
           }),
