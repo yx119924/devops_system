@@ -473,7 +473,12 @@ class ElasticsearchSourceViewSet(CustomModelViewSet):
             msg="查询成功",
         )
 
-    @action(methods=['GET'], detail=False, url_path='facets')
+    # ★ detail=True 不能改成 False（2026-11-05 踩过）：
+    #   detail=False 注册出来的是集合级路由 `/log/es/facets/`，
+    #   而检索页请求的是 `/log/es/{id}/facets/` ⇒ 一路 404「接口路径找不到」，
+    #   且响应里不会告诉你「正确路径是什么」。
+    #   路由对不对，可用 print(get_resolver().url_patterns) 或 DRF 的 router.urls 验证。
+    @action(methods=['GET'], detail=True, url_path='facets')
     def facets(self, request, pk=None):
         """检索页的筛选项：主机 IP / 服务名（terms 聚合）。
 
