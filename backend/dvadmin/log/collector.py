@@ -749,7 +749,7 @@ def effective_input_type(task, detected_beat_type):
 
 
 def render_config(task, server_ip, beat_type="filestream"):
-    """生成 filebeat 配置片段（写入目标机 ``<remote_dir>/xwops-task-<id>.yml``）。
+    """生成 filebeat 配置片段（写入目标机 ``<remote_dir>/xwops-<服务名>-<id>.yml``）。
 
     beat_type: ``filestream``（filebeat ≥ 7.9）或 ``log``（更老的版本）。
 
@@ -1172,7 +1172,26 @@ def remote_dir_of(task):
 
 
 def remote_path_of(task):
-    return "%s/xwops-task-%s.yml" % (remote_dir_of(task), task.pk)
+    """片段在目标机上的绝对路径。
+
+    ★ 文件名只在 ``models.LogCollectTask.remote_filename`` 里定义一次。
+      2026-11-05 之前这里和模型各拼了一遍同样的字符串，改名时差点漏改一处 ——
+      漏改的表现是「下发写到 A、停止删 B」：片段删不掉、采集停不下来、
+      而且页面上一切显示正常。
+    """
+    return "%s/%s" % (remote_dir_of(task), task.remote_filename)
+
+
+def _legacy_paths(task):
+    """**历史命名**（v1: ``xwops-task-<id>.yml``）对应的路径。
+
+    2026-11-05 文件名改成 ``xwops-<服务名>-<id>.yml`` 之后，改名前就下发过的任务
+    在目标机上还留着旧文件。filebeat 会把**两个文件都当 input 加载**（id 不同），
+    ⇒ 同一份日志被采两遍；而「停止」只删新路径 ⇒ 旧片段永远删不掉。
+
+    ⇒ 下发时顺手清理、停止时兜底删除。★ 这段至少保留一个版本周期再考虑移除。
+    """
+    return ["%s/xwops-task-%s.yml" % (remote_dir_of(task), task.pk)]
 
 
 # ---- 下发 -----------------------------------------------------------------
@@ -1281,6 +1300,18 @@ def apply_config(task, server, credential):
         "echo '%s' | base64 -d > %s" % (b64, _sh(incoming)),
         validate,
         "if [ -f %s ]; then cp -p %s %s.bak.%s; fi" % (_sh(path), _sh(path), _sh(path), ts),
+    ]
+    # ★★ 清理**历史命名**的片段，且必须赶在 mv 之前（2026-11-05 改名时想清楚的一点）：
+    #   旧文件里的 input id 是 `xwops-task-<id>`，新文件里**也是同一个 id**（特意没改，
+    #   改了 registry 就重来、offset 全丢）。所以两份文件同时存在时，filebeat 的
+    #   reloader 会看到**两个相同的 input id**，reload 直接失败、两个都不加载 ——
+    #   表现为「下发成功、采集却停了」，日志里只有一行 conflict。
+    #   ⇒ 先删旧、再 mv：任意时刻目录里最多只有一份片段。代价是毫秒级无片段窗口，
+    #     比 reload 失败好得多（前者只是短暂停顿，后者是静默停摆）。
+    _legacy = [p for p in _legacy_paths(task) if p != path]
+    if _legacy:
+        cmds.append("rm -f %s" % " ".join(_sh(p) for p in _legacy))
+    cmds += [
         "mv -f %s %s" % (_sh(incoming), _sh(path)),
         "chmod 0644 %s" % _sh(path),
     ]
@@ -1344,8 +1375,14 @@ def stop_config(task, server, credential):
 
     cmds = [
         "set -e",
-        "rm -f %s" % _sh(path),
     ]
+    # ★ 新旧两种命名**都删**：改名前下发过的任务，旧文件不删就会一直采下去，
+    #   而「停止」在页面上已经显示成功 —— 最坏的一类静默残留。
+    _targets = []
+    for p in [path] + _legacy_paths(task):
+        if p not in _targets:
+            _targets.append(p)
+    cmds.extend("rm -f %s" % _sh(p) for p in _targets)
     if (det or {}).get("reload_enabled"):
         cmds.append("echo 'reload-enabled: 等 filebeat 自动卸载（≤10s）'")
     else:

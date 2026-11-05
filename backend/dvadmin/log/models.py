@@ -3,6 +3,8 @@
 ES 日志数据源模型：Elasticsearch 连接配置
 密码复用堡垒机 Fernet 加密（密钥 CREDENTIAL_ENCRYPTION_KEY）
 """
+import re
+
 from django.db import models
 
 from dvadmin.bastion.crypto import decrypt, encrypt
@@ -60,7 +62,7 @@ class ElasticsearchSource(CoreModel):
 #     断点续传 / 文件轮转 / 多行合并 / 背压都是它的成熟能力，不需要我们重写一遍。
 #   · 平台只负责三件事：**生成片段 → 下发到目标机 → 回显状态**。
 #   · 每个采集任务 = 目标机上的**一个独立文件**
-#     `<remote_dir>/xwops-task-<id>.yml`，与存量 filebeat 配置物理隔离：
+#     `<remote_dir>/xwops-<服务名>-<id>.yml`，与存量 filebeat 配置物理隔离：
 #     停止采集 = 删这个文件；任务删除 = 删这个文件。不会碰到别人的配置。
 #   · ★ **主配置 `filebeat.yml` 默认不动**。但主配置必须包含
 #     `filebeat.config.inputs.path` 才会加载片段目录 —— 这一点由「环境检测」
@@ -195,9 +197,31 @@ class LogCollectTask(CoreModel):
     # ---- 派生属性（不落库，避免出现"两个真相"） ---------------------------
 
     @property
+    def fragment_label(self):
+        """片段文件名里的可读标识：优先服务名，其次任务名，都不可用则回退 ``task``。
+
+        ★ 为什么优先 ``extra_fields.service_name`` 而不是任务名：
+          任务名是人写的「aichem-auth应用日志」，带中文和描述性词汇；
+          而 service_name 是结构化的服务标识，正好是运维 `ls` 时想看到的东西。
+        ★ 为什么要过滤字符：文件名会进 shell（``rm``/``cp``/``mv``）和 filebeat 的 glob，
+          只保留 ``[A-Za-z0-9_.-]`` 最省事，中文与空格统一折成 ``-``。
+        """
+        raw = ((self.extra_fields or {}).get('service_name') or self.name or '')
+        s = re.sub(r'[^A-Za-z0-9_.-]+', '-', str(raw)).strip('-')
+        return s[:40] or 'task'
+
+    @property
     def remote_filename(self):
-        """目标机上的片段文件名。★ 由主键生成，不接受用户输入 —— 杜绝路径穿越。"""
-        return "xwops-task-%s.yml" % (self.pk if self.pk else "new")
+        """目标机上的片段文件名：``xwops-<可读标识>-<id>.yml``。
+
+        ★ 2026-11-05 由 ``xwops-task-<id>.yml`` 改来 —— 纯 id 的文件名在 `ls` 时
+          完全看不出里面是哪个服务的日志，23 个任务排下来没法对账。
+        ★ **必须保留 id**：service_name 与任务名都**不保证唯一**，
+          纯名字做文件名时两个任务会互相覆盖 —— 表现是片段数量凭空少一个，
+          页面上完全看不出来，而采集停了一半。
+        ★ id 仍不接受用户输入，路径穿越的风险不变。
+        """
+        return "xwops-%s-%s.yml" % (self.fragment_label, self.pk if self.pk else "new")
 
     @property
     def remote_path(self):

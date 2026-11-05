@@ -297,8 +297,9 @@ class LogCollectTaskViewSet(CustomModelViewSet):
     def _assert_deletable(self, instance):
         """★ 已下发的任务必须先「停止」才能删除。
 
-        为什么不让它悄悄删掉：数据库里删一条记录很简单，但**目标机上的
-        ``xwops-task-<id>.yml`` 还在**，filebeat 会继续采集 —— 用户在平台上
+        为什么不让它悄悄删掉：数据库里删一条记录很简单，但**目标机上的片段文件
+        ``xwops-<服务名>-<id>.yml``（改名前下发的是 ``xwops-task-<id>.yml``）还在**，
+        filebeat 会继续采集 —— 用户在平台上
         看不到这个任务了，日志却还在往 ES 里灌，属于"看不见的副作用"。
         宁可让他多点一次「停止」，也不制造这种状态。
 
