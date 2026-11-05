@@ -202,8 +202,9 @@
 										</div>
 									</div>
 
-									<!-- 正文 -->
-									<div v-if="m.text" class="bubble-text ai-text" v-text="m.text"></div>
+									<!-- 正文：AI 输出是 Markdown，必须渲染后再展示（原来用 v-text + pre-wrap，### 和 ** 会原样露出）。
+									     刻意不带 bubble-text —— 它的 white-space:pre-wrap 会让渲染后的 HTML 多出空白 -->
+									<MarkdownView v-if="m.text" class="ai-text" :source="m.text" />
 									<div v-else-if="(m.calls || []).length" class="tc-pending">正在排查…</div>
 								</div>
 							</template>
@@ -297,6 +298,7 @@ import {
 	SendMessage,
 	DelSession,
 } from './api';
+import MarkdownView from './MarkdownView.vue';
 import type {
 	ChatCredential,
 	ChatGuardState,
@@ -324,6 +326,7 @@ const QUICK_QUESTIONS = [
 
 export default defineComponent({
 	name: 'aiChat',
+	components: { MarkdownView },
 	setup() {
 		// ---------------------------------------------------------- 基础状态
 		const sessions = ref<ChatSessionBrief[]>([]);
