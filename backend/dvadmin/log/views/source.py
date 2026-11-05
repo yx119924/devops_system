@@ -181,6 +181,63 @@ def _as_list(value):
     return out
 
 
+# 检索页要聚合的两个字段（采集侧口径：server_ip 由平台注入，service_name 由附加字段写入）
+_AGG_FIELDS = ('server_ip', 'service_name')
+
+
+def _agg_field_plan(base, index, auth, fields=_AGG_FIELDS):
+    """探测每个字段在目标索引里的**可聚合形态**。
+
+    返回 ``(usable, blocked)``：
+      usable[field] = 真正该拿去聚合的字段名
+        · ``server_ip``          —— 本身就是 keyword
+        · ``server_ip.keyword``  —— text + keyword 子字段的老索引，用子字段照样能聚
+      blocked[field] = 不可用的原因（给用户看的中文短语）
+
+    ★ 为什么不「先聚合，失败再看错误文案」（2026-11-05 真机踩到，第二次）：
+      ES 7 的报错是 ``Text fields are not optimised for operations that require
+      per-document field data...``，而 ES 6 是 ``Fielddata is disabled on text fields``。
+      按文案分支必然漏掉一个版本 —— 漏掉的表现是把**整段英文 JSON 弹给用户**。
+      探测字段能力是版本无关的，才是正解。
+
+    ★ 为什么不「字段不存在就直接跳过」：老索引的 text 字段多半带 ``.keyword`` 子字段，
+      其实完全可以聚合，只是要换成子字段名。用 _field_caps 才能区分「不能聚」和「要换名字聚」。
+    """
+    try:
+        resp = requests.get(f"{base}/{index}/_field_caps",
+                            params={'fields': ','.join(fields)}, auth=auth, timeout=10)
+    except requests.exceptions.RequestException as e:
+        return {}, {f: '字段探测失败（%s）' % e for f in fields}
+
+    if resp.status_code == 404:
+        return {}, {f: '索引不存在' for f in fields}
+    if resp.status_code != 200:
+        return {}, {f: '字段探测失败（HTTP %s）' % resp.status_code for f in fields}
+
+    try:
+        caps = (resp.json() or {}).get('fields') or {}
+    except ValueError:
+        return {}, {f: '字段探测返回非 JSON' for f in fields}
+
+    usable, blocked = {}, {}
+    for f in fields:
+        info = caps.get(f)
+        if not info:
+            blocked[f] = '在该索引里没有这个字段'
+            continue
+        kw = info.get('keyword') or {}
+        # 本身是 keyword：没有 text 兄弟节点，且可聚合
+        if kw and 'text' not in info and kw.get('aggregatable', True):
+            usable[f] = f
+            continue
+        # text + keyword 子字段：改用子字段
+        if kw and kw.get('aggregatable', True):
+            usable[f] = f + '.keyword'
+            continue
+        blocked[f] = '是 text 且没有 keyword 子字段（不能聚合）'
+    return usable, blocked
+
+
 class ElasticsearchSourceSerializer(CustomModelSerializer):
     status_label = serializers.SerializerMethodField()
     has_password = serializers.SerializerMethodField()
@@ -502,14 +559,30 @@ class ElasticsearchSourceViewSet(CustomModelViewSet):
         if not base:
             return ErrorResponse(msg='数据源地址为空')
 
-        dsl = {
-            "size": 0,
-            "track_total_hits": False,
-            "aggs": {
-                "hosts": {"terms": {"field": "server_ip", "size": _FACET_MAX_ITEMS}},
-                "services": {"terms": {"field": "service_name", "size": _FACET_MAX_ITEMS}},
-            },
-        }
+        # ★ 先探测字段能力，再决定聚合什么（见 _agg_field_plan 的注释）
+        usable, blocked = _agg_field_plan(base, index, source.get_auth())
+        notes = ['%s %s' % (f, why) for f, why in sorted(blocked.items())]
+
+        agg_body = {}
+        if 'server_ip' in usable:
+            agg_body['hosts'] = {"terms": {"field": usable['server_ip'], "size": _FACET_MAX_ITEMS}}
+        if 'service_name' in usable:
+            agg_body['services'] = {"terms": {"field": usable['service_name'], "size": _FACET_MAX_ITEMS}}
+
+        if not agg_body:
+            # 这个索引本来就没有这两个字段（例如 nginx-log-* 这类非本平台采集的索引）。
+            # 不报错：切到别的索引看一眼是正常操作，弹红框属于打扰。
+            both_missing = (len(blocked) == len(_AGG_FIELDS)
+                            and all('没有这个字段' in v for v in blocked.values()))
+            if both_missing:
+                notes = ['该索引没有 server_ip / service_name 字段（可能不是本平台采集的索引），'
+                         '主机 / 服务筛选对它不可用']
+            return DetailResponse(
+                data={"hosts": [], "services": [],
+                      "notes": notes or ['该索引没有 server_ip / service_name 字段']},
+                msg="该索引没有可聚合的主机/服务字段")
+
+        dsl = {"size": 0, "track_total_hits": False, "aggs": agg_body}
         url = f"{base}/{index}/_search"
         _t0 = time.monotonic()
         try:
@@ -521,23 +594,25 @@ class ElasticsearchSourceViewSet(CustomModelViewSet):
         except requests.exceptions.RequestException as e:
             return ErrorResponse(msg=f"ES 请求异常：{e}")
 
-        logger.info("[log.facets] source=%s index=%s -> es=%.0fms http=%s",
-                    source.id, index, (time.monotonic() - _t0) * 1000, resp.status_code)
+        logger.info("[log.facets] source=%s index=%s fields=%s -> es=%.0fms http=%s",
+                    source.id, index, ','.join(sorted(usable.values())),
+                    (time.monotonic() - _t0) * 1000, resp.status_code)
 
         if resp.status_code == 404:
             # 索引还不存在 = 采集还没落第一条。不是错误，返回空选项让页面照常可用。
             return DetailResponse(
                 data={"hosts": [], "services": [],
-                      "notes": ["索引还不存在：%s（确认采集已下发、且之后有新日志写入）" % index]},
+                      "notes": notes + ["索引还不存在：%s（确认采集已下发、且之后有新日志写入）" % index]},
                 msg="索引不存在")
         if resp.status_code in (401, 403):
             return ErrorResponse(msg='ES 认证失败或账号无权限，请检查用户名与密码')
-        if resp.status_code == 400 and 'Fielddata is disabled' in (resp.text or ''):
-            # 字段被动态映射成 text：聚合直接用不了（terms 查询也会**静默**返回 0 条）
+        if resp.status_code == 400:
+            # ★ 不按错误文案分支（ES 6/7/8 措辞各不相同），统一降级成可读提示，
+            #   绝不能把整段英文 JSON 弹给用户。
             return DetailResponse(
                 data={"hosts": [], "services": [],
-                      "notes": ["server_ip / service_name 不是 keyword（当前被映射成 text），无法聚合。"
-                                "按 LOG-COLLECT.md 第 11 章先建索引模板，再让新索引落数据。"]},
+                      "notes": notes + ["ES 拒绝聚合（HTTP 400）：server_ip / service_name 可能不是 keyword。"
+                                        "按 LOG-COLLECT.md 第 11 章建索引模板后重写数据。"]},
                 msg="字段类型不支持聚合")
         if resp.status_code != 200:
             return ErrorResponse(msg=f"ES 返回 HTTP {resp.status_code}：{resp.text[:300]}")
@@ -547,16 +622,15 @@ class ElasticsearchSourceViewSet(CustomModelViewSet):
         except ValueError:
             return ErrorResponse(msg="ES 返回非 JSON 响应")
 
-        aggs = data.get('aggregations') or {}
+        resp_aggs = data.get('aggregations') or {}
 
         def _buckets(name):
             return [{"value": b.get('key'), "count": b.get('doc_count', 0)}
-                    for b in ((aggs.get(name) or {}).get('buckets') or [])
+                    for b in ((resp_aggs.get(name) or {}).get('buckets') or [])
                     if b.get('key') not in (None, '')]
 
         hosts = _buckets('hosts')
         services = _buckets('services')
-        notes = []
         if not hosts and not services:
             notes.append("当前索引里没有 server_ip / service_name 的值："
                          "确认采集任务的「附加字段」填了 service_name，且日志是下发之后新写入的")
