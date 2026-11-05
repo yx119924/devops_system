@@ -36,12 +36,41 @@
         :shortcuts="shortcuts"
         style="width: 360px"
       />
+      <el-select
+        v-model="hosts"
+        multiple
+        collapse-tags
+        collapse-tags-tooltip
+        filterable
+        clearable
+        :loading="facetLoading"
+        placeholder="主机 IP"
+        style="width: 200px"
+      >
+        <el-option v-for="h in hostOptions" :key="h.value" :label="`${h.value} (${h.count})`" :value="h.value" />
+      </el-select>
+      <el-select
+        v-model="services"
+        multiple
+        collapse-tags
+        collapse-tags-tooltip
+        filterable
+        clearable
+        :loading="facetLoading"
+        placeholder="服务"
+        style="width: 200px"
+      >
+        <el-option v-for="s in serviceOptions" :key="s.value" :label="`${s.value} (${s.count})`" :value="s.value" />
+      </el-select>
       <el-select v-model="level" placeholder="级别" clearable style="width: 120px">
         <el-option v-for="l in levels" :key="l" :label="l" :value="l" />
       </el-select>
       <el-input v-model="keyword" placeholder="关键字（全文检索）" clearable style="width: 240px" @keyup.enter="doSearch" />
       <el-button type="primary" :loading="loading" @click="doSearch">查询</el-button>
     </div>
+
+    <!-- 筛选项获取失败 / 字段类型不对时的提示（不阻断查询） -->
+    <div v-if="facetNotes.length" class="facet-note">⚠ {{ facetNotes.join('；') }}</div>
 
     <!-- 结果 -->
     <div class="log-result">
@@ -76,7 +105,7 @@
 <script lang="ts">
 import { defineComponent, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
-import { GetEsList, GetEsIndices, SearchLogs } from './api';
+import { GetEsList, GetEsIndices, GetEsFacets, SearchLogs } from './api';
 
 export default defineComponent({
   name: 'logSearch',
@@ -90,6 +119,13 @@ export default defineComponent({
     const timeRange = ref<[string, string] | null>(null);
     const level = ref('');
     const keyword = ref('');
+    // 主机 / 服务筛选（值取自 ES 聚合，见 loadFacets）
+    const hosts = ref<string[]>([]);
+    const services = ref<string[]>([]);
+    const hostOptions = ref<any[]>([]);
+    const serviceOptions = ref<any[]>([]);
+    const facetLoading = ref(false);
+    const facetNotes = ref<string[]>([]);
     const loading = ref(false);
     const searched = ref(false);
     const total = ref(0);
@@ -158,18 +194,66 @@ export default defineComponent({
       }
     };
 
+    /**
+     * 拉取当前索引下的主机 / 服务选项。
+     *
+     * ★ 选项来自 ES 的 terms 聚合（= 当前索引里**真实出现过**的值），
+     *   既不是 CMDB 也不是写死列表 —— 否则会出现「选得到却查不到」的项。
+     * ★ 拉完必须剔除「已选但新索引里不存在」的值，否则会带着失效条件去查，
+     *   表现是「明明选了主机却 0 条」，而用户看不出条件已经失效。
+     */
+    const loadFacets = async () => {
+      if (!sourceId.value || !indexPattern.value) return;
+      facetLoading.value = true;
+      try {
+        const res: any = await GetEsFacets(sourceId.value, indexPattern.value);
+        if (res?.code === 2000) {
+          hostOptions.value = res.data?.hosts || [];
+          serviceOptions.value = res.data?.services || [];
+          facetNotes.value = res.data?.notes || [];
+          const hs = new Set(hostOptions.value.map((x: any) => x.value));
+          const ss = new Set(serviceOptions.value.map((x: any) => x.value));
+          hosts.value = hosts.value.filter((v) => hs.has(v));
+          services.value = services.value.filter((v) => ss.has(v));
+        } else {
+          hostOptions.value = [];
+          serviceOptions.value = [];
+          facetNotes.value = [res?.msg || '筛选项获取失败'];
+        }
+      } catch (e) {
+        hostOptions.value = [];
+        serviceOptions.value = [];
+        facetNotes.value = ['筛选项获取异常'];
+      } finally {
+        facetLoading.value = false;
+      }
+    };
+
+    /** 切数据源时清空筛选（不同数据源的字段值不可互用） */
+    const resetFacets = () => {
+      hosts.value = [];
+      services.value = [];
+      hostOptions.value = [];
+      serviceOptions.value = [];
+      facetNotes.value = [];
+    };
+
     const onSourceChange = async () => {
       searched.value = false;
       logs.value = [];
       total.value = 0;
       totalExact.value = true;
       activeIndex.value = '';
+      resetFacets();
       await loadIndices();
+      await loadFacets();
     };
 
-    /** 切换索引后直接开查，省一次点击 */
-    const onIndexChange = () => {
-      if (sourceId.value && indexPattern.value) doSearch();
+    /** 切换索引后先刷新可选值再开查，省一次点击 */
+    const onIndexChange = async () => {
+      if (!sourceId.value || !indexPattern.value) return;
+      await loadFacets();
+      doSearch();
     };
 
     const doSearch = async () => {
@@ -194,6 +278,9 @@ export default defineComponent({
           params.from = timeRange.value[0];
           params.to = timeRange.value[1];
         }
+        // 只在有选择时才带该条件：传空数组会让后端生成空 terms（等于「匹配不到任何东西」）
+        if (hosts.value.length) params.hosts = hosts.value;
+        if (services.value.length) params.services = services.value;
         const res: any = await SearchLogs(sourceId.value, params);
         if (res?.code === 2000) {
           total.value = res.data?.total ?? 0;
@@ -219,6 +306,7 @@ export default defineComponent({
           if (sources.value.length) {
             sourceId.value = sources.value[0].id;
             await loadIndices();
+            await loadFacets();
           }
         }
       } catch (e) {
@@ -229,7 +317,8 @@ export default defineComponent({
     return {
       sources, sourceId, indices, indexPattern, indexLoading, activeIndex,
       timeRange, level, keyword, loading, searched, total, totalExact, logs,
-      levels, shortcuts, levelTag, fmtDocs, fmtSize, shortFile, loadIndices, onSourceChange, onIndexChange, doSearch,
+      hosts, services, hostOptions, serviceOptions, facetLoading, facetNotes,
+      levels, shortcuts, levelTag, fmtDocs, fmtSize, shortFile, loadIndices, loadFacets, onSourceChange, onIndexChange, doSearch,
     };
   },
 });
@@ -251,6 +340,15 @@ export default defineComponent({
   background: #fff;
   border-radius: 10px;
   border: 1px solid #ebeef5;
+}
+.facet-note {
+  font-size: 12px;
+  color: #e6a23c;
+  background: #fdf6ec;
+  border: 1px solid #faecd8;
+  border-radius: 6px;
+  padding: 6px 12px;
+  line-height: 1.5;
 }
 .log-result {
   background: #fff;

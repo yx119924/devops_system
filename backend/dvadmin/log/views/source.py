@@ -153,6 +153,34 @@ def _merge_index(name):
     return name
 
 
+# 多选筛选项最多接受多少个（防止构造超长 terms 查询）
+_FACET_MAX_ITEMS = 200
+
+
+def _as_list(value):
+    """把前端传来的多选参数归一成去重后的字符串列表。
+
+    ★ 为什么要容三种形态（2026-11-05）：前端 el-select 多选给的是 list，
+      但手工用 curl / 脚本调接口时常传 `hosts=a,b` 或单个字符串。
+      若直接 `for x in value`，字符串会**按字符拆开** —— "web" 变成 "w"/"e"/"b"，
+      于是 filters 里塞进三个单字母，查出来恒为 0 条**且不报错**，极难排查。
+    """
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw = list(value)
+    else:
+        raw = str(value).split(',')
+    out = []
+    for item in raw:
+        s = str(item or '').strip()
+        if s and s not in out:
+            out.append(s)
+        if len(out) >= _FACET_MAX_ITEMS:
+            break
+    return out
+
+
 class ElasticsearchSourceSerializer(CustomModelSerializer):
     status_label = serializers.SerializerMethodField()
     has_password = serializers.SerializerMethodField()
@@ -282,8 +310,9 @@ class ElasticsearchSourceViewSet(CustomModelViewSet):
 
     @action(methods=['POST'], detail=True, url_path='search')
     def search(self, request, pk=None):
-        """日志检索：body {index, keyword, level, from, to, size, from_offset}
+        """日志检索：body {index, keyword, level, hosts, services, from, to, size, from_offset}
         index 优先于数据源上配置的「索引模式」，用于在检索页临时切换索引。
+        hosts / services 是多选筛选（list 或逗号分隔字符串均可）。
         """
         source = self.get_object()
         body = request.data or {}
@@ -331,6 +360,21 @@ class ElasticsearchSourceViewSet(CustomModelViewSet):
             for token in _LEVEL_SEARCH_ALIAS.get(lv, (lv.upper(),)):
                 should.append({"match_phrase": {"message": token}})
             filters.append({"bool": {"should": should, "minimum_should_match": 1}})
+
+        # ★ 主机 / 服务筛选（2026-11-05 新增）
+        #   字段名口径必须与采集侧严格一致：
+        #     server_ip     —— 平台下发片段时逐台注入（collector.py:721-727 的 add_fields）
+        #     service_name  —— 任务的「附加字段」写入
+        #   ★ 绝不能写成 service：那是 ECS 的 object 字段，采集侧填标量会被 ES 拒收，
+        #     这里查它只会命中 service.name 之类的子路径，恒为 0 条。
+        #   ★ 两个字段都要求是 keyword（索引模板里声明）。若被动态映射成 text，
+        #     terms 查询不会报错、只会返回 0 条 —— 用 facets 接口能看出这个差异。
+        hosts = _as_list(body.get('hosts'))
+        services = _as_list(body.get('services'))
+        if hosts:
+            filters.append({"terms": {"server_ip": hosts}})
+        if services:
+            filters.append({"terms": {"service_name": services}})
 
         dsl = {
             "size": size,
@@ -428,6 +472,91 @@ class ElasticsearchSourceViewSet(CustomModelViewSet):
             data={"total": total, "total_exact": total_exact, "logs": logs, "index": index},
             msg="查询成功",
         )
+
+    @action(methods=['GET'], detail=False, url_path='facets')
+    def facets(self, request, pk=None):
+        """检索页的筛选项：主机 IP / 服务名（terms 聚合）。
+
+        GET ?index=<索引模式>
+        返回 {hosts: [{value, count}], services: [...], notes: [...]}
+
+        ★ 为什么从 ES 聚合、而不是从 CMDB 或写死：
+          下拉要的是「**当前索引里真实出现过**哪些主机、哪些服务」。
+          从 CMDB 取会多出「有机器但没日志」的项，写死则会漏掉新增服务 ——
+          两者都会让用户选中一个永远查不到结果的值，却看不出哪里错了。
+        """
+        source = self.get_object()
+        raw_index = (request.query_params.get('index') or '').strip()
+        if raw_index and not _safe_index(raw_index):
+            return ErrorResponse(msg=f"索引模式不合法：{raw_index}")
+        index = _safe_index(raw_index) or (source.index_pattern or '').strip().strip('/')
+        if not index:
+            return ErrorResponse(msg='索引模式为空，无法获取筛选项')
+
+        base = (source.url or '').strip().rstrip('/')
+        if not base:
+            return ErrorResponse(msg='数据源地址为空')
+
+        dsl = {
+            "size": 0,
+            "track_total_hits": False,
+            "aggs": {
+                "hosts": {"terms": {"field": "server_ip", "size": _FACET_MAX_ITEMS}},
+                "services": {"terms": {"field": "service_name", "size": _FACET_MAX_ITEMS}},
+            },
+        }
+        url = f"{base}/{index}/_search"
+        _t0 = time.monotonic()
+        try:
+            resp = requests.post(url, json=dsl, auth=source.get_auth(), timeout=20)
+        except requests.exceptions.Timeout:
+            return ErrorResponse(msg=f"ES 请求超时（20s）：{base}")
+        except requests.exceptions.ConnectionError:
+            return ErrorResponse(msg=f"无法连接 ES：{base}")
+        except requests.exceptions.RequestException as e:
+            return ErrorResponse(msg=f"ES 请求异常：{e}")
+
+        logger.info("[log.facets] source=%s index=%s -> es=%.0fms http=%s",
+                    source.id, index, (time.monotonic() - _t0) * 1000, resp.status_code)
+
+        if resp.status_code == 404:
+            # 索引还不存在 = 采集还没落第一条。不是错误，返回空选项让页面照常可用。
+            return DetailResponse(
+                data={"hosts": [], "services": [],
+                      "notes": ["索引还不存在：%s（确认采集已下发、且之后有新日志写入）" % index]},
+                msg="索引不存在")
+        if resp.status_code in (401, 403):
+            return ErrorResponse(msg='ES 认证失败或账号无权限，请检查用户名与密码')
+        if resp.status_code == 400 and 'Fielddata is disabled' in (resp.text or ''):
+            # 字段被动态映射成 text：聚合直接用不了（terms 查询也会**静默**返回 0 条）
+            return DetailResponse(
+                data={"hosts": [], "services": [],
+                      "notes": ["server_ip / service_name 不是 keyword（当前被映射成 text），无法聚合。"
+                                "按 LOG-COLLECT.md 第 11 章先建索引模板，再让新索引落数据。"]},
+                msg="字段类型不支持聚合")
+        if resp.status_code != 200:
+            return ErrorResponse(msg=f"ES 返回 HTTP {resp.status_code}：{resp.text[:300]}")
+
+        try:
+            data = resp.json()
+        except ValueError:
+            return ErrorResponse(msg="ES 返回非 JSON 响应")
+
+        aggs = data.get('aggregations') or {}
+
+        def _buckets(name):
+            return [{"value": b.get('key'), "count": b.get('doc_count', 0)}
+                    for b in ((aggs.get(name) or {}).get('buckets') or [])
+                    if b.get('key') not in (None, '')]
+
+        hosts = _buckets('hosts')
+        services = _buckets('services')
+        notes = []
+        if not hosts and not services:
+            notes.append("当前索引里没有 server_ip / service_name 的值："
+                         "确认采集任务的「附加字段」填了 service_name，且日志是下发之后新写入的")
+        return DetailResponse(data={"hosts": hosts, "services": services, "notes": notes},
+                              msg="获取成功")
 
     @action(methods=['GET'], detail=False, url_path='all')
     def all_list(self, request, *args, **kwargs):

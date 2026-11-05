@@ -32,3 +32,14 @@ export function GetEsIndices(id: number, keyword?: string) {
 export function SearchLogs(id: number, params: any) {
 	return request({ url: `/log/es/${id}/search/`, method: 'post', data: params, timeout: ES_QUERY_TIMEOUT });
 }
+
+/**
+ * 检索页筛选项：主机 IP / 服务名。
+ *
+ * ★ 从 ES 做 terms 聚合取「当前索引里真实出现过的值」，不从 CMDB 或写死列表取：
+ *   CMDB 会多出「有机器但没日志」的项，写死会漏掉新增服务 —— 两者都会让用户
+ *   选中一个永远查不到结果的值，而页面上看不出哪里错了。
+ */
+export function GetEsFacets(id: number, index: string) {
+	return request({ url: `/log/es/${id}/facets/`, method: 'get', params: { index }, timeout: ES_QUERY_TIMEOUT });
+}

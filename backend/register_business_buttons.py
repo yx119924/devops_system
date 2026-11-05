@@ -111,6 +111,10 @@ EXTRA_ACTIONS = [
     ("日志检索", "数据源下拉", "logSearch:SourceList", "/api/log/es/all/", GET),
     ("日志检索", "索引列表", "logSearch:Indices", "/api/log/es/{id}/indices/", GET),
     ("日志检索", "日志检索", "logSearch:Search", "/api/log/es/{id}/search/", POST),
+    # 检索页的主机 / 服务下拉（2026-11-05 新增）
+    # ★ 不登记 = 非超管调这个接口被 CustomPermission 默认拒绝（403），
+    #   表现为「下拉框永远是空的、也没有报错」，超级管理员却一切正常。
+    ("日志检索", "主机服务筛选项", "logSearch:Facets", "/api/log/es/{id}/facets/", GET),
 ]
 
 # ============================================================
