@@ -1,6 +1,6 @@
 # XwOps 日志采集 · 使用手册
 
-> **从目标机装 filebeat，到平台上看到日志，全流程逐步说明。**
+> **从目标机装 filebeat，到在平台上查到日志，全流程逐步说明。**
 > 定位：照着做即可，所有命令都能直接复制。
 >
 > 适用：XwOps 的「**日志管理 → 采集配置**」功能（`/api/log/collect/`）。
@@ -10,10 +10,26 @@
 
 ## 关于本手册
 
+### 当前的采集模型（先记住这一句）
+
+> **一个采集任务 = 一条日志路径 = 目标机上的一个 filebeat input。**
+
+推论：
+
+| 你有 | 就要建 |
+|---|---|
+| 1 个服务、1 份日志 | 1 个任务 |
+| 1 台机上有 23 个服务目录，每个目录一份 `all.log` | **23 个任务**（每个任务挂全部 n 台主机） |
+| 同一个服务要采两种格式的文件 | 2 个任务 |
+
+**为什么不能一个任务填多条路径**：平台的「日志路径」是单值字段（`CharField(255)`），
+白名单只允许 `字母数字 _ - . / * [ ]`，空格与花括号都会被后端拒绝。
+多路径 / 一条 glob 覆盖多服务的方案**暂未实现**，需要时再单独设计。
+
 ### 这份文档解决什么问题
 
-平台上点几下就能配采集，但**真正跑通它，有 6 道门要过**，而其中大部分门**平台不会提示你**。
-本手册按实际操作顺序把 6 道门全部写出来，并给出每一步的**判断命令**。
+平台上点几下就能配采集，但**真正跑通它，有 8 道门要过**，而其中大部分门**平台不会提示你**。
+本手册按实际操作顺序把 8 道门全部写出来，并给出每一步的**判断命令**。
 
 ### 三个必须先分清的概念
 
@@ -34,9 +50,8 @@
 本手册**不内嵌现成截图**——截图里必然带有内网 IP、主机名、账号名、真实索引名，
 而本仓库是**公开仓库**，直接放进去等于对外披露你的内网信息。
 
-替代方案是**逐条给出命令与期望输出**（文字块本身也能脱敏），并在每个需要目视确认的地方
-标出 `📷 截图位`。**如果你要补充截图**，请按 [附录 B](#附录-b-截图清单) 放置，
-并**先遮挡内网 IP / 主机名 / 账号**。
+替代方案是**逐条给出命令与期望输出**，并在每个需要目视确认的地方标出 `📷 截图位`。
+**如果你要补充截图**，请按 [附录 B](#附录-b-截图清单) 放置，并**先遮挡内网 IP / 主机名 / 账号**。
 
 ### 阅读约定
 
@@ -50,7 +65,7 @@
 
 ## 0. 五分钟心智模型
 
-一条日志从目标机到能检索，要经过 **6 段**。任何一段断了，结果都是「ES 里什么都没有」：
+一条日志从目标机到能检索，要经过 **8 段**。任何一段断了，结果都是「ES 里什么都没有」：
 
 ```
 ① 目标机装 filebeat
@@ -59,11 +74,15 @@
         ↓
 ③ 服务跑起来（不是 crash-loop）
         ↓
-④ 平台「采集配置」建任务 → 点「下发」→ 片段落到 /etc/filebeat/inputs.d/
+④ ES 侧建保留策略 + 索引模板（决定字段类型与过期删除）
         ↓
-⑤ filebeat 热加载到片段（≤10s）→ harvester 启动
+⑤ 平台建任务（一条路径）→ 点「下发」→ 片段落到 /etc/filebeat/inputs.d/
         ↓
-⑥ 事件发到 ES → 按 output 的配置生成索引
+⑥ filebeat 热加载到片段（≤10s）→ harvester 启动
+        ↓
+⑦ 事件发到 ES → 按 output 的配置生成索引
+        ↓
+⑧ 检索页选索引模式 → 按 IP / 服务 / 时间 / 关键字查
 ```
 
 **记住这张图**：排查时永远先问「**现在断在第几段**」，而不是东改一处西改一处。
@@ -75,10 +94,11 @@
 | 检查项 | 怎么确认 | 期望 |
 |---|---|---|
 | 目标机能 SSH 登录 | `ssh <账号>@192.0.2.30` | 通 |
+| 目标机 SSH 端口 | `ss -lntp \| grep ssh` | 非 22 的话，后面 CMDB 里要填对 |
 | 目标机发行版 | `cat /etc/os-release` | apt 系 / yum 系，决定第 2 步走哪种装法 |
-| **有 root 权限的凭据** | `sudo -v` 或直接有 root 密码/私钥 | ★ **必须有**，见 [4.1](#41-凭据必须是-root为什么) |
+| **有 root 权限的凭据** | `sudo -v` 或直接有 root 密码/私钥 | ★ **必须有**，见 [6.1](#61-凭据必须是-root为什么) |
 | ES 地址与版本 | `curl -s http://<ES>:9200/` | 能返回 `cluster_name` / `version` |
-| ES 是否启用 ILM | 看第 4 步的索引名有没有 `-000001` 后缀 | 影响索引命名，见 [3.3](#33-ilm关掉它否则你配的索引名不作数) |
+| ES 磁盘余量 | `curl -s "http://<ES>:9200/_cat/allocation?v&h=node,disk.total,disk.used,disk.avail,disk.percent"` | 决定保留天数 |
 | 平台的 ES 数据源已登记 | 平台 → 日志管理 → ES 数据源 | URL 填对、能「测试连接」通过 |
 
 ---
@@ -253,6 +273,10 @@ filebeat-7.17.29-2026.09.30-000001
 > - 已有系列**有** `-000001` ⇒ 你环境在用 ILM，那就把 `setup.ilm.rollover_alias` 改成你的前缀，
 >   而不是关掉它。
 
+> ★★ **关掉 filebeat 的 ILM ≠ 不要保留策略**。
+> 前者只是不让 filebeat 接管**命名**；过期删除要靠 ES 侧单独建策略，见 [第 5 节](#5-第-4-步es-侧准备保留策略--索引模板)。
+> 不建保留策略，索引会一直堆到磁盘 95% —— 那时**所有索引变只读，采集当场写不进来**。
+
 ### 3.4 校验配置语法
 
 ```bash
@@ -288,7 +312,7 @@ systemctl status filebeat --no-pager -l
 sudo filebeat test output
 ```
 
-它会**逐跳**打印与 ES 的连接测试（DNS → TCP → TLS → 握手），
+它会**逐跳**打印与 ES 的连接测试（DNS → TCP → TLS → 握手）：
 
 ```
 elasticsearch: http://192.0.2.163:9200...
@@ -320,13 +344,155 @@ sudo journalctl -u filebeat -n 40 --no-pager
 | `Harvester started for paths: [...]` | 开始采集（几个文件就有几条） |
 
 > ★ `Harvester started` **只代表"开始读了"**，不代表"发出去了"。
-> 真正决定性的是指标行里的 `output.events.acked`（见 [6.4](#64-验证数据真的进了-es)）。
+> 真正决定性的是指标行里的 `output.events.acked`（见 [9.4](#94-最可靠的验收造一行新日志)）。
 
 ---
 
-## 5. 第 4 步：平台侧准备
+## 5. 第 4 步：ES 侧准备（保留策略 + 索引模板）
 
-### 5.1 凭据必须是 root（为什么）
+> 这一步在**第一条日志落进来之前**完成。晚了就要 reindex。
+
+### 5.1 先定索引名
+
+日志落到哪个索引，由目标机 `filebeat.yml` 的 `index` 决定（见 [3.2](#32-改-etcfilebeatfilebeatyml)）。
+示例里用的是 `myapp-log-%{+yyyy.MM.dd}`，即按天滚动：
+
+```
+myapp-log-2026.11.05
+myapp-log-2026.11.06
+...
+```
+
+**建议就一个索引族，不要按服务拆**：查的时候用字段（`service_name` / `server_ip`）过滤，
+倒排交集是毫秒级的；拆成几十个索引反而让分片数暴涨，且跨服务串联排查时要跨索引搜。
+
+### 5.2 建保留策略（过期自动删索引）
+
+```bash
+curl -X PUT "http://<ES>:9200/_ilm/policy/myapp-log-30d" \
+  -H 'Content-Type: application/json' -d '{
+  "policy": {
+    "phases": {
+      "hot":    { "min_age": "0ms", "actions": {} },
+      "delete": { "min_age": "30d", "actions": { "delete": {} } }
+    }
+  }
+}'
+```
+
+> 期望返回 `{"acknowledged":true}`。
+> `min_age` 从**索引创建时间**算，不是最后一条数据的时间 —— 按天索引正好对得上。
+> **不用 rollover**：索引名保持 `myapp-log-YYYY.MM.DD`，不会被改成 `-000001`。
+> ILM 是**异步**的（`poll_interval` 默认 10 分钟），到点不会立刻消失，别以为没生效。
+
+### 5.3 建索引模板（决定字段类型 + 绑定保留策略）
+
+```bash
+curl -X PUT "http://<ES>:9200/_index_template/myapp-log-custom" \
+  -H 'Content-Type: application/json' -d '{
+  "index_patterns": ["myapp-log-*"],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "index.lifecycle.name": "myapp-log-30d"
+    },
+    "mappings": {
+      "properties": {
+        "server_ip":    { "type": "keyword" },
+        "service_name": { "type": "keyword" }
+      }
+    }
+  }
+}'
+```
+
+三个要点，每个都对应一次踩坑：
+
+| 要点 | 不这么做的后果 |
+|---|---|
+| **模板名带 `-custom`** | filebeat 自推模板的名字 = `setup.template.name`，同名 PUT 会**整个覆盖**，谁后跑谁赢 |
+| **`priority: 200`** | filebeat 自推模板 priority 是 150，低于它就压不住，字段仍被动态映射成 `text` |
+| **两个字段声明 keyword** | 动态映射会建成 `text`，`term` 查询**返回 0 条且不报错**（`web-api` 被 `-` 拆成两个词） |
+
+> ★★ **`number_of_replicas` 单节点必须是 `0`**。
+> 写成 `1` 时，副本分片无处分配，索引会**一直停在 yellow** —— 数据读写都正常，
+> 但那行黄色告警会永远挂着，且容易被误当成故障。
+> 多节点环境才填 `1`（或更多）；从单节点扩成多节点后，记得把模板改回 `1`
+> 并给已有索引补副本 —— **零副本的集群坏一块盘就丢数据**。
+>
+> - 单个索引的副本数是**动态设置**，可原地改、不用 reindex：
+>   `PUT /myapp-log-*/_settings {"index":{"number_of_replicas":0}}`
+> - 单节点 ES 平时核对：`GET _cat/indices/myapp-log-*?h=index,health,rep`，`health` 应为 `green`。
+> - **索引一旦创建，改模板不回溯**。已经建错了只能 reindex。
+> - `service_name` / `server_ip` 这两个字段名是**平台约定**，不要改：
+>   前者由任务的「附加字段」写入，后者由平台下发片段时逐台注入。
+
+**★ 如果模板建晚了（索引已经产生了才想起来建）**
+
+模板只在**索引创建那一刻**生效，已存在的索引不会变。分三种情况处理：
+
+| 现有索引的 mapping | 影响 | 怎么办 |
+|---|---|---|
+| 字段已是 `keyword` | 无 | 不用管 |
+| `text` + `keyword` 子字段（ES 7 动态映射的默认结果） | **功能正常** | 不用管 —— 平台的筛选接口会自动改用 `service_name.keyword` 聚合 |
+| 纯 `text` 且无子字段 | 聚合被 ES 拒绝 | 只能 reindex |
+
+先查一句：
+
+```bash
+curl -s "http://<ES>:9200/myapp-log-*/_mapping" | grep -A4 service_name
+```
+
+**保留策略可以补绑**（模板里的 `index.lifecycle.name` 同样不回溯）：
+
+```bash
+# ⚠️ 绑之前先看创建时间，超过 min_age 的索引会被 ILM 立刻删除
+curl -s "http://<ES>:9200/_cat/indices/myapp-log-*?h=index,creation.date.string&s=index:asc"
+
+curl -X PUT "http://<ES>:9200/myapp-log-*/_settings" \
+  -H 'Content-Type: application/json' \
+  -d '{"index":{"lifecycle":{"name":"myapp-log-30d"}}}'
+```
+
+> ★ **不要用「删索引重来」的办法修正类型**：删除索引**不会让 filebeat 重发数据** ——
+> registry 里已记了 offset，filebeat 认为那些行读过了。真要重来只能 `_reindex` 到新索引名。
+
+### 5.4 验证
+
+```bash
+# 模板在不在
+curl -s "http://<ES>:9200/_index_template/myapp-log-custom" | head -20
+
+# 索引建出来后，确认字段类型（这条要在第一条数据之后跑）
+curl -s "http://<ES>:9200/myapp-log-*/_mapping" | grep -A2 -E 'server_ip|service_name'
+# 期望："type": "keyword"
+```
+
+### 5.5 磁盘水位（决定保留天数能不能到 30 天）
+
+ES 三个水位，别等 100%：
+
+| 水位 | 默认值 | 触发什么 |
+|---|---|---|
+| low | 85% | 不再分配新分片（**新索引可能建不出来**） |
+| high | 90% | 尝试迁走分片，迁不走就卡住 |
+| **flood_stage** | **95%** | **所有索引变只读**，采集当场写不进来 |
+
+容量公式：
+
+```
+单日增量 × 保留天数 × (1 + 副本数) ≤ 磁盘总量 × 0.85
+```
+
+单日增量用接入第二天实测：`GET _cat/indices/myapp-log-*?h=index,docs.count,store.size`。
+
+---
+
+## 6. 第 5 步：平台侧准备
+
+### 6.1 凭据必须是 root（为什么）
 
 这是**最容易卡住**的一点。平台的执行方式是：
 
@@ -337,7 +503,7 @@ sudo journalctl -u filebeat -n 40 --no-pager
 | 命令 | 需要什么 | 普通账号能满足吗 |
 |---|---|---|
 | `mkdir -p /etc/filebeat/inputs.d` | 目录已存在时不需要权限 | ✅ 预建好即可 |
-| `base64 -d > /etc/filebeat/inputs.d/xwops-task-N.yml.incoming` | 该**目录的写权限** | ✅ 给写权限即可 |
+| `base64 -d > /etc/filebeat/inputs.d/xwops-xxx.yml.incoming` | 该**目录的写权限** | ✅ 给写权限即可 |
 | `filebeat test config -c <片段>` | 读文件 | ✅ |
 | `cp -p` 备份、`mv -f` 原子替换、`chmod 0644` | 目录写权限 + 文件属主 | ✅ |
 | **`systemctl restart filebeat`** | root / polkit | ❌ **只有这一步真的需要 root** |
@@ -348,7 +514,7 @@ sudo journalctl -u filebeat -n 40 --no-pager
    它是一条**你必须显式敲出去的命令**。平台没敲，那份 sudoers 授权**一次都不会被兑现**。
    典型报错：
    ```
-   下发命令退出码 1: bash: line 1: /etc/filebeat/inputs.d/xwops-task-1.yml.incoming: Permission denied
+   下发命令退出码 1: bash: line 1: /etc/filebeat/inputs.d/xwops-xxx.yml.incoming: Permission denied
    ```
    注意 `bash: line 1:` —— 这是 **bash 在做输出重定向时就失败了**，连一个字节都没写下去。
 
@@ -371,7 +537,12 @@ sudo chown <账号>:<账号> /etc/filebeat/inputs.d
 # 更保守的替代：sudo chgrp <账号> /etc/filebeat/inputs.d && sudo chmod 775 /etc/filebeat/inputs.d
 ```
 
-### 5.2 登记 ES 数据源
+> ★ **如果目标机禁了 root 密码登录**（Ubuntu 默认 `PermitRootLogin prohibit-password`），
+> 用**私钥凭据**：凭据管理里认证类型选「私钥」，粘贴私钥全文（不能带 passphrase）。
+> 一条私钥可以给多台主机用，但凭据的「关联服务器」要**留空**（通用凭据），
+> 否则绑定到某台机后，挂别的机器会报「凭据绑定的服务器与目标服务器不一致」。
+
+### 6.2 登记 ES 数据源
 
 平台 → 日志管理 → **ES 数据源** → 新建：
 
@@ -380,28 +551,49 @@ sudo chown <账号>:<账号> /etc/filebeat/inputs.d
 | 名称 | 自定义，如 `统一日志采集` |
 | URL | `http://<ES>:9200`，带 `http://` |
 | 用户名 / 密码 | 有认证才填 |
-| 索引模式 | 检索时默认用的通配，如 `*-log-*` |
+| 索引模式 | 检索时默认用的通配，如 `myapp-log-*` |
 
 > ★ 这个数据源是**查询入口**（检索页去哪里查），**不是写入目标**。
 > 日志写到哪台 ES，由**目标机 `filebeat.yml` 的 `output`** 决定。
 
-### 5.3 新建采集任务
+---
 
-平台 → 日志管理 → **采集配置** → 新建。关键字段：
+## 7. 第 6 步：新建采集任务
+
+### 7.1 一个服务一个任务
+
+平台的「日志路径」是**单值字段**，渲染成 filebeat `paths:` 的**一个**元素，且白名单只允许
+`字母数字 _ - . / * [ ]`：
+
+```
+✅ /opt/myapp/logs/web/all.log
+✅ /opt/myapp/logs/web/*.log
+❌ /opt/myapp/logs/{web,api}/all.log      ← 花括号被后端拒绝
+❌ /opt/myapp/logs/web/all.log /opt/...    ← 空格被拒绝
+```
+
+`*/all.log` 看似能一条覆盖所有服务，但**服务名没有来源**：一个任务只有一套「附加字段」，
+没法给不同子目录打不同的 `service_name`，检索页就筛不出服务。
+
+⇒ **一个服务目录 = 一个任务**。23 个服务就建 23 个任务，每个任务的目标服务器都勾全部 n 台。
+
+### 7.2 字段逐项说明
+
+平台 → 日志管理 → **采集配置** → 新建。
 
 | 字段 | 填什么 | 备注 |
 |---|---|---|
-| 任务名称 | 如 `myapp 应用日志` | 会作为 `xwops_task_name` 字段随日志写下去 |
-| **ES 数据源** | 选 5.2 建的 | 仅用于比对与跳转检索 |
-| **索引前缀** | 如 `myapp-log` | 小写字母数字开头；检索时用 `myapp-log-*` 通配 |
-| **凭据** | ★ 选 **root** | 见 [5.1](#51-凭据必须是-root为什么) |
+| **任务名称** | 如 `myapp-web` | 建议 `<应用>-<服务>`，会作为 `xwops_task_name` 随日志写下去，**也是片段文件名的来源** |
+| **ES 数据源** | 选 6.2 建的 | 仅用于比对与跳转检索 |
+| **索引前缀** | 如 `myapp-log` | 小写字母数字开头；★ **只是标签**，不决定落库索引 |
+| **凭据** | ★ 选 **root**（或私钥凭据） | 见 [6.1](#61-凭据必须是-root为什么) |
 | 采集方式 | 托管 filebeat 配置片段 | 当前仅此一种 |
-| **日志路径** | 如 `/opt/myapp/logs/*.log` | ★ **日志路径填在这里**，不是填在 filebeat.yml |
+| **日志路径** | 如 `/opt/myapp/logs/web/all.log` | ★ **填在这里**，不是填在 filebeat.yml |
 | 包含 / 排除正则 | 按需 | 见下方「正则方言」提醒 |
-| 最低级别 | 按需 | 低于该级别的行直接丢弃 |
-| 多行起始 | Java 堆栈等按需 | 形如 `^\d{4}-\d{2}-\d{2}` |
-| **附加字段** | ★ 见下方警告 | 只填自己的字段 |
-| **只采新增** | 见 [第 7 节](#7-只采新增到底什么意思) | ★ 语义比你想的窄 |
+| 最低级别 | 按需 | 低于该级别的行**直接丢弃**（不落 ES，检索时筛不出来） |
+| 多行起始正则 | Java 堆栈等按需 | 形如 `^\d{4}-\d{2}-\d{2}` |
+| **附加字段** | 至少填 `service_name` | ★ 见下方警告 |
+| **只采新增** | 建议勾上 | 见 [第 11 节](#11-只采新增到底什么意思) |
 | 片段目录 | 默认 `/etc/filebeat/inputs.d` | 与 filebeat.yml 的 `path:` 一致 |
 
 **★ 附加字段的坑（会导致"三边全绿、零数据"）**
@@ -410,11 +602,19 @@ filebeat 装的 ECS 模板把 122 个顶层字段里的 **115 个声明成 objec
 像 `service` / `host` / `agent` / `log` / `cloud` 这些**你给它们填标量值**，
 ES 会直接拒收，而 **filebeat 是静默丢弃、不重试**——表现是「事件数一直涨，ES 里一条没有」。
 
-所以要填就填**自己的字段**，例如：
+要填就填**自己的字段**，检索页认这几个名字：
 
 ```json
-{"app_name": "myapp", "env_name": "prod"}
+{"service_name": "web"}
 ```
+
+| 字段 | 用途 |
+|---|---|
+| **`service_name`** | ★ 检索页「服务」下拉的来源，必须填 |
+| `env_name` | 环境标识，检索结果里会显示 |
+
+> ⚠️ **绝不能写 `service`** —— 那是 ECS 的 object 字段，填标量必被拒收。
+> 平台自动注入的 `server_ip` 不受影响（它不是 ECS 字段）。
 
 **★ 正则方言提醒**：filebeat 用的是 Go 的 **RE2**，
 不支持**负向预查/回顾**（`(?!...)`、`(?<=...)`）和**数字反向引用**（`\1`）。
@@ -422,9 +622,25 @@ ES 会直接拒收，而 **filebeat 是静默丢弃、不重试**——表现是
 
 📷 **截图位**：新建任务表单（注意遮挡 IP 与账号）。
 
-### 5.4 环境检测会告诉你什么
+### 7.3 批量铺开
 
-平台 → 任务 → **检测**。这一步是**只读**的，返回的 `warnings` 很有价值：
+第一个任务跑通后（走完第 8~10 步），其余服务照抄，**每次只改三处**：
+
+1. 任务名称（`myapp-web` → `myapp-api`）
+2. 日志路径（`.../web/all.log` → `.../api/all.log`）
+3. 附加字段（`service_name: web` → `api`）
+
+目标服务器一次勾全 n 台即可。
+
+> 建议一次铺 3~5 个服务就验一轮，别 23 个全建完再统一验 —— 那时出问题分不清是模板、路径还是字段的错。
+
+---
+
+## 8. 第 7 步：检测 → 试跑 → 下发 → 回读
+
+### 8.1 环境检测（只读）
+
+点**检测**。返回的 `warnings` 很有价值：
 
 | warning 原文 | 含义 |
 |---|---|
@@ -437,27 +653,21 @@ ES 会直接拒收，而 **filebeat 是静默丢弃、不重试**——表现是
 > ★ **warning 必须读**。这一条「目标机没有安装 filebeat」曾经被忽略，
 > 导致排查方向完全跑偏。
 
----
-
-## 6. 第 5 步：试跑 → 下发 → 验收
-
-### 6.1 先试跑（只读，不落 ES）
+### 8.2 试跑（只读，不落 ES）
 
 点**试跑**：平台会 SSH 到目标机 `tail` 最后 N 行，**在平台侧**跑一遍过滤规则，给你看保留/被过滤的对照。
 
 > ★★ **试跑成功 ≠ 采集成功。** 试跑**不下发、不让 filebeat 动、不写 ES**。
 > 它只证明「**凭据能读到这个日志文件**」。
-> 弹窗底部那行小字就是平台在说这件事：「实际采集由 filebeat 独立执行」。
+> ★ **试跑只对第一台目标机生效**，多目标任务不能拿它当全部通过。
 
-📷 **截图位**：试跑结果弹窗（样本行数 / 保留 / 被过滤）。
-
-### 6.2 下发
+### 8.3 下发
 
 点**下发**。平台做的事（任一步失败即中止）：
 
 1. 生成片段 → **平台侧校验形状**（必须是**顶级数组**，不能套 `filebeat.inputs:`）；
 2. 目标机：写 `.incoming`（**绝不先动现场**）→ `filebeat test config` **语法校验**；
-3. 校验通过 → `cp -p` 备份旧片段 → `mv -f` **原子替换** → `chmod 0644`；
+3. 校验通过 → `cp -p` 备份旧片段 → **删掉该任务的历史命名片段** → `mv -f` **原子替换** → `chmod 0644`；
 4. 主配置开了 `reload.enabled` 就**等热加载（≤10s）**，否则 `systemctl restart filebeat`。
 
 > ★ 这个「先写 `.incoming`、校验通过才替换」的设计很关键：
@@ -465,33 +675,31 @@ ES 会直接拒收，而 **filebeat 是静默丢弃、不重试**——表现是
 
 📷 **截图位**：下发结果弹窗（成功 / 异常明细）。
 
-### 6.3 回读现场（别只看平台说"成功"）
-
-平台说成功，也要**去目标机看一眼**：
+### 8.4 回读现场（别只看平台说"成功"）
 
 ```bash
-# ① 片段在不在了
+# ① 片段在不在（文件名带服务名，一眼能认出是哪个任务）
 ls -l /etc/filebeat/inputs.d/
-# 期望：xwops-task-<id>.yml
+# 期望：xwops-<服务名>-<任务id>.yml，例如 xwops-myapp-web-7.yml
 
 # ② 片段到底写了什么 —— ★ 这是"消费方拿到的输入"，最权威
-sudo cat /etc/filebeat/inputs.d/xwops-task-<id>.yml
+sudo cat /etc/filebeat/inputs.d/xwops-myapp-web-7.yml
 ```
 
 **片段长这样（filestream 形态，filebeat ≥ 7.9）：**
 
 ```yaml
-# xwops-task-1  (myapp 应用日志)
+# 由 XwOps 平台生成 · 任务 #7 · 请勿手工修改（下次下发会覆盖）
 - type: filestream
-  id: xwops-task-1
+  id: xwops-task-7
   enabled: true
   paths:
-    - /opt/myapp/logs/*.log
+    - /opt/myapp/logs/web/all.log
   fields:
-    xwops_task_id: 1
-    xwops_task_name: 'myapp 应用日志'
+    xwops_task_id: 7
+    xwops_task_name: 'myapp-web'
     index_prefix: 'myapp-log'
-    app_name: 'myapp'
+    service_name: 'web'
   fields_under_root: true
   parsers:
     - multiline:
@@ -499,7 +707,10 @@ sudo cat /etc/filebeat/inputs.d/xwops-task-<id>.yml
         negate: true
         match: after
   processors:
-    - drop_event.when.regexp.message: '^(DEBUG|INFO)\s'
+    - add_fields:
+        target: ''
+        fields:
+          server_ip: '192.0.2.30'
 ```
 
 **filebeat < 7.9 或勾了「只采新增」时**，同一个任务会降级成 `log` input：
@@ -509,7 +720,7 @@ sudo cat /etc/filebeat/inputs.d/xwops-task-<id>.yml
   enabled: true
   tail_files: true          # ★ 只在 log input 里有这个选项
   paths:
-    - /opt/myapp/logs/*.log
+    - /opt/myapp/logs/web/all.log
   fields:
     ...
 ```
@@ -518,30 +729,60 @@ sudo cat /etc/filebeat/inputs.d/xwops-task-<id>.yml
 > 套了键的片段**语法合法**，filebeat 会**放行但提取出 0 个 input**——
 > 不报错、不采集、平台显示成功。这是最坏的失败形态。
 
-### 6.4 验证数据真的进了 ES
+### 8.5 多台主机的注意事项
 
-**关键点：`Harvester started` 只说明"在读"，不说明"发出去了"。** 用下面两步确证。
+一个任务勾了 n 台，片段是**逐台渲染**的：路径与服务名相同，只有 `server_ip` 每台不同。
 
-**第一步：看完整指标行**
+- **必须通过平台下发**，不要手工把一台的片段拷到另一台 —— 那样 `server_ip` 会全错，
+  检索时按 IP 筛永远是同一台。
+- 下发后抽查 2~3 台：
 
 ```bash
-sudo journalctl -u filebeat --since "10 min ago" --no-pager | grep -iE "Non-zero|acked|dropped|ERROR"
+grep 'server_ip' /etc/filebeat/inputs.d/xwops-myapp-web-7.yml
+# 每台应该看到自己的 IP
 ```
 
-关心这三个字段：
+---
 
-| 字段 | 含义 |
-|---|---|
-| `filebeat.events.added` | 采到多少 |
-| **`output.events.acked`** | ★ **最终确认写入 ES 的条数**（有值且在涨 = 成功） |
-| `filebeat.events.dropped` | 丢弃多少（有值说明处理器/映射有问题） |
+## 9. 第 8 步：验收
 
-**第二步：主动造一行新日志（最可靠的验收）**
+### 9.1 索引建出来了，名字对
 
 ```bash
-echo "$(date '+%F %T') XWOPS-COLLECT-PROBE hello" | sudo tee -a /opt/myapp/logs/app.log
+curl -s "http://<ES>:9200/_cat/indices/myapp-log-*?h=index,docs.count,store.size&s=index:desc"
+```
+
+期望：出现 `myapp-log-2026.11.05`（当天），`docs.count` > 0。
+若索引名是 `filebeat-7.17.x-...-000001` ⇒ [3.3](#33-ilm关掉它否则你配的索引名不作数) 的 `setup.ilm.enabled: false` 没生效。
+
+### 9.2 字段类型是 keyword
+
+```bash
+curl -s "http://<ES>:9200/myapp-log-*/_mapping" | grep -A2 -E 'server_ip|service_name'
+```
+
+期望 `"type": "keyword"`。
+若看到 `"type": "text"` + `"fields": {"keyword": ...}` ⇒ [5.3](#53-建索引模板决定字段类型--绑定保留策略) 的模板没在索引创建前生效，**只能 reindex 重来**。
+
+### 9.3 关键字段都有值
+
+```bash
+curl -s -X POST "http://<ES>:9200/myapp-log-*/_search?size=1&pretty" \
+  -H 'Content-Type: application/json' -d '{"sort":[{"@timestamp":"desc"}]}' \
+  | grep -E '"(server_ip|service_name|@timestamp|message)"'
+```
+
+四项缺一不可：`server_ip`（主机）、`service_name`（服务）、`@timestamp`（时间）、`message`（关键字）。
+
+- `service_name` 缺失 ⇒ 附加字段没写进片段，回 [7.2](#72-字段逐项说明)
+- `@timestamp` 是采集时刻而非日志正文时间 ⇒ 时间提取正则没填对
+
+### 9.4 最可靠的验收：造一行新日志
+
+```bash
+echo "$(date '+%F %T') XWOPS-COLLECT-PROBE hello" | sudo tee -a /opt/myapp/logs/web/all.log
 sleep 30
-curl -s "http://192.0.2.163:9200/_cat/indices?h=index,docs.count&s=creation.date:desc" | head -5
+curl -s "http://<ES>:9200/_cat/indices/myapp-log-*?h=index,docs.count&s=creation.date:desc" | head -3
 ```
 
 **期望**：最上面一行是你的索引，`docs.count` **从 0 变成 1（或加 1）**。
@@ -549,28 +790,66 @@ curl -s "http://192.0.2.163:9200/_cat/indices?h=index,docs.count&s=creation.date
 > ★ `docs.count = 1` 且时间对得上 ⇒ **全链路打通**。这是唯一无歧义的验收判据。
 > 光看「平台显示下发成功」不算。
 
-📷 **截图位**：`_cat/indices` 输出，圈出你的索引那行。
+### 9.5 按服务 / 按主机聚合，数量对得上
 
-### 6.5 回到平台检索
+```bash
+curl -s -X POST "http://<ES>:9200/myapp-log-*/_search?size=0" \
+  -H 'Content-Type: application/json' -d '{
+  "aggs": {
+    "by_service": { "terms": { "field": "service_name", "size": 50 } },
+    "by_host":    { "terms": { "field": "server_ip", "size": 50 } }
+  }
+}'
+```
 
-平台 → 日志管理 → **日志检索** → 选 5.2 的数据源与索引模式 → 查。
-
-**如果这里查不到你刚写进去的日志**，按顺序确认：
-
-1. 检索用的索引模式对不对（`myapp-log-*`，注意 `*`）；
-2. 数据源 URL 是不是**你日志真正落进去的那台 ES**；
-3. ES 里到底有没有这个索引：`curl -s "http://<ES>:9200/_cat/indices?h=index&s=index:asc" | grep myapp`。
+- `by_service` 的桶数应该等于**已有数据的服务数**
+- `by_host` 的桶数应该等于**已有数据的主机数**
+- 报 `Fielddata is disabled` ⇒ 字段是 text，回到 [9.2](#92-字段类型是-keyword)
 
 ---
 
-## 7. 「只采新增」到底什么意思
+## 10. 第 9 步：在检索页查日志
+
+平台 → 日志管理 → **日志检索**。
+
+### 10.1 选数据源与索引模式
+
+1. **ES 数据源**：选 [6.2](#62-登记-es-数据源) 建的那条
+2. **索引模式**：`myapp-log-*`（下拉里是归并后的通配模式，**带星号**）
+
+### 10.2 筛选条件
+
+| 条件 | 说明 |
+|---|---|
+| **时间范围** | 必选。不选时间会扫全部索引，大索引会超时（前端 30s 上限） |
+| **主机 IP** | 多选，选项来自当前索引里真实出现过的 `server_ip` |
+| **服务** | 多选，选项来自 `service_name` |
+| **级别** | 从正文里匹配——没有独立 `level` 字段时是弱匹配 |
+| **关键字** | 全文检索，走 `query_string` |
+
+> ★ 主机 / 服务下拉是**对着当前索引做聚合**得来的，所以：
+> - 索引里没有 `service_name` 字段 ⇒ 下拉为空，下方会出现黄色提示说明原因
+> - 换索引后已选但不存在的值会被自动剔除，避免"选了却查不到"
+
+### 10.3 查不到怎么办
+
+按顺序确认：
+
+1. 索引模式对不对（`myapp-log-*`，注意 `*`）
+2. 数据源 URL 是不是**日志真正落进去的那台 ES**
+3. ES 里到底有没有：`curl -s "http://<ES>:9200/_cat/indices?h=index&s=index:asc" | grep myapp`
+4. 时间范围是不是落在日志的时间段内（`@timestamp` 可能不是采集时刻）
+5. 筛选条件是否过窄（先清空 IP / 服务，只留时间 + 关键字）
+
+---
+
+## 11. 「只采新增」到底什么意思
 
 这个开关的语义比大多数人以为的**窄**：
 
 > `tail_files` **只对「filebeat 还没见过的文件」生效**。
 
 **推论（非常重要）：一台全新装的 filebeat，registry 是空的，所以所有日志文件对它都是"没见过"的。**
-⇒ 结果是：
 
 | 场景 | 行为 |
 |---|---|
@@ -589,7 +868,7 @@ curl -s "http://192.0.2.163:9200/_cat/indices?h=index,docs.count&s=creation.date
 
 ---
 
-## 8. 故障总表（按症状查）
+## 12. 故障总表（按症状查）
 
 **先说方法**：先确定断在 [第 0 节那张图](#0-五分钟心智模型) 的**第几段**，再对症下药。
 
@@ -597,58 +876,72 @@ curl -s "http://192.0.2.163:9200/_cat/indices?h=index,docs.count&s=creation.date
 |---|---|---|---|
 | 1 | 试跑报「没有读到内容…且账号有读权限」 | 凭据账号读不到日志文件（**目录缺 `x`**，不是文件权限） | `namei -l <日志文件路径>` 逐级看；补目录的进入权限 |
 | 2 | `apt-get install filebeat` 报 `Unable to locate package` | 没加 Elastic 源（filebeat 不在官方源） | 走 [2.2](#22-方式-a在线加-elastic-源推荐) 或 [2.3](#23-方式-b离线-deb--rpm内网) |
-| 3 | 服务反复重启，日志 `could not initialize the keystore: … permission denied` | `path.data` 落在了不可写的目录（如某个残留 unit 的工作目录） | `systemctl cat filebeat` 看 `WorkingDirectory` 与 `--path.data`；正解是让它落在 `/var/lib/filebeat` |
+| 3 | 服务反复重启，日志 `could not initialize the keystore: … permission denied` | `path.data` 落在了不可写的目录 | `systemctl cat filebeat` 看 `WorkingDirectory` 与 `--path.data`；正解是让它落在 `/var/lib/filebeat` |
 | 4 | `Start request repeated too quickly` | crash-loop 触发了 systemd 的 `StartLimitBurst` | `sudo systemctl reset-failed filebeat` 再 `restart` |
 | 5 | 启动报 `setup.template.name and setup.template.pattern have to be set if index name is modified` | 自定义了 `index` 却没声明模板 | 补 `setup.template.name` / `setup.template.pattern` |
-| 6 | 下发报 `…xwops-task-N.yml.incoming: Permission denied` | 凭据非 root 且目录不可写（**平台不加 `sudo`**） | 换 root 凭据，或按 [5.1](#51-凭据必须是-root为什么) 方案 B |
-| 7 | 下发报 `错误码…filebeat 校验未通过 can only be writable by the owner but the permissions are "-rw-rw-r--"` | 目标机 umask 是 `002`，`.incoming` 被建成组可写 | 见 [第 9 节](#9-已知限制与平台当前缺陷) 的已知缺陷 |
-| 8 | **ES 里没有索引** | ① 还没到点「下发」；② 没装 filebeat；③ 服务没起来；④ **「只采新增」⇒ 还没有新日志** | 用 [6.4](#64-验证数据真的进了-es) 的 probe 造一行新日志 |
-| 9 | ES 里索引名是 `filebeat-<版本>-<日期>-000001` | **ILM 接管了命名** | 加 `setup.ilm.enabled: false`（见 [3.3](#33-ilm关掉它否则你配的索引名不作数)） |
-| 10 | 事件数在涨、ES 一条没有 | 附加字段用了 ECS 对象型字段名（`service`/`host`/…） | 见 [5.3](#53-新建采集任务) 的警告 |
-| 11 | 改了 filebeat.yml 但没生效 | `setup.*` / `output.*` 是**启动级**配置，不参与 reload | `sudo systemctl restart filebeat` |
+| 6 | 检测报 `Authentication failed` | ① 目标机禁了 root 密码登录（Ubuntu 默认）② 凭据密码为空 ③ 账号不对 | 先 `ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no root@<IP>` 强制走密码试一次；不行就改用私钥凭据 |
+| 7 | 检测报 `连接超时 / Connection refused` | 端口不对（非 22）或网络不通 | CMDB 里该服务器的 SSH 端口要填对；`ss -lntp \| grep ssh` 确认 |
+| 8 | 下发报 `…xwops-xxx.yml.incoming: Permission denied` | 凭据非 root 且目录不可写（**平台不加 `sudo`**） | 换 root 凭据，或按 [6.1](#61-凭据必须是-root为什么) 方案 B |
+| 9 | 下发报 `can only be writable by the owner but the permissions are "-rw-rw-r--"` | 目标机 umask 是 `002`，`.incoming` 被建成组可写 | 见 [第 13 节](#13-已知限制与平台当前缺陷) 第 3 条 |
+| 10 | **ES 里没有索引** | ① 还没点「下发」；② 没装 filebeat；③ 服务没起来；④ **「只采新增」⇒ 还没有新日志** | 用 [9.4](#94-最可靠的验收造一行新日志) 造一行 probe |
+| 11 | ES 里索引名是 `filebeat-<版本>-<日期>-000001` | **ILM 接管了命名** | 加 `setup.ilm.enabled: false`（见 [3.3](#33-ilm关掉它否则你配的索引名不作数)） |
+| 12 | 事件数在涨、ES 一条没有 | 附加字段用了 ECS 对象型字段名（`service`/`host`/…） | 见 [7.2](#72-字段逐项说明) 的警告，改成 `service_name` |
+| 13 | 改了 filebeat.yml 但没生效 | `setup.*` / `output.*` 是**启动级**配置，不参与 reload | `sudo systemctl restart filebeat` |
+| 14 | 检索页「主机 / 服务」下拉是空的 | ① 索引里没有这两个字段；② 字段被映射成 text；③ 当前用户没有 `logSearch:Facets` 按钮权限 | 看下拉下方的黄色提示；权限问题见 [13.1](#131-检索页筛选相关的已知限制) |
+| 15 | 片段文件名还是 `xwops-task-<id>.yml` | 文件名在**下发**时生成，重启不改变 | 对该任务重新点一次「下发」 |
 
 ---
 
-## 9. 已知限制与平台当前缺陷
+## 13. 已知限制与平台当前缺陷
 
 > 这一节是**主动披露**，避免你在踩到时怀疑人生。**不是你的配置问题。**
 
 | # | 现象 | 根因 | 影响 / 绕行 |
 |---|---|---|---|
 | 1 | 平台上填的「索引前缀」不会变成 ES 里的索引名 | filebeat 的 `index` 是 **output 级**配置，**片段改不动它**；平台只把前缀作为 `fields` 带下去 + 当检索通配用 | 索引名统一在目标机 `filebeat.yml` 里管；ILM 启用时还会被 ILM 再改一次 |
-| 2 | 没人提示「这个功能需要 root 凭据」 | 平台**没有任何地方**做凭据权限预检 | 只能靠一次失败反推。**见 [5.1](#51-凭据必须是-root为什么)** |
-| 3 | 下发在 **umask=002** 的机器上必然失败 | 平台把 `.incoming` 写成 `664`（`0666 & ~umask`），而 `filebeat test config` 要求「**只有属主可写**」；平台的 `chmod 0644` 排在**校验之后**，永远轮不到 | **临时解**：预建并固定权限（`>` 重定向到已存在的文件不改权限）<br>`sudo touch /etc/filebeat/inputs.d/xwops-task-<id>.yml.incoming && sudo chmod 0644 <同上>`<br>⚠️ 一次性——成功下发后它会被 `mv` 走<br>**正解**：让平台在**校验之前**统一 umask/chmod（待修） |
+| 2 | 没人提示「这个功能需要 root 凭据」 | 平台**没有任何地方**做凭据权限预检 | 只能靠一次失败反推。**见 [6.1](#61-凭据必须是-root为什么)** |
+| 3 | 下发在 **umask=002** 的机器上必然失败 | 平台把 `.incoming` 写成 `664`（`0666 & ~umask`），而 `filebeat test config` 要求「**只有属主可写**」；平台的 `chmod 0644` 排在**校验之后**，永远轮不到 | **临时解**：预建并固定权限（`>` 重定向到已存在的文件不改权限）<br>`sudo touch /etc/filebeat/inputs.d/xwops-xxx.yml.incoming && sudo chmod 0644 <同上>`<br>⚠️ 一次性——成功下发后它会被 `mv` 走<br>**正解**：让平台在**校验之前**统一 umask/chmod（待修） |
 | 4 | 用容器跑 filebeat 时，平台恒显示「未安装」 | 「环境检测」靠 `command -v filebeat` / `systemctl is-active filebeat` 判断 | 功能可用但状态失真，见 [2.4](#24-方式-c用容器跑-filebeat有代价) |
 | 5 | 试跑只对**第一台**目标机生效 | 实现如此 | 多目标任务请分批验证 |
 | 6 | 试跑读不到时，平台只能并列猜测原因 | 试跑执行的 `tail … 2>/dev/null \|\| true` **把 stderr 丢了** | 平台分不清「路径不存在」与「权限不足」；自行用 `namei -l` / 手工 `tail` 复核 |
+| 7 | 非超管看不到「主机 / 服务」下拉 | `facets` 接口需要 `logSearch:Facets` 按钮权限，缺了会被 `CustomPermission` **默认拒绝（403）**，页面只显示空下拉、不报错 | 角色管理里给该角色勾上「日志检索」菜单下的**全部 4 个按钮**，数据权限选**全部数据权限**，然后**重新登录** |
+
+### 13.1 检索页筛选相关的已知限制
+
+- 筛选只认 `server_ip` / `service_name` **两个字段**。其它索引（如 nginx 日志）没有这两个字段时，
+  下拉为空并提示「该索引没有 server_ip / service_name 字段」，属于预期行为。
+- 若字段被动态映射成 `text`，聚合会被 ES 拒绝，提示「不是 keyword」。此时只能 reindex。
+- 老索引的字段若是 `text` + `.keyword` 子字段，平台会自动改用子字段聚合，**不需要手工处理**。
 
 ---
 
-## 10. 一页速查（命令清单）
+## 14. 一页速查（命令清单）
 
 ```bash
 # ── 目标机 ──────────────────────────────────────────────
-filebeat version                                    # 装好了吗
+filebeat version                                          # 装好了吗
 sudo filebeat test config -c /etc/filebeat/filebeat.yml   # 配置语法
-sudo filebeat test output                           # ★ 发得出去吗
-systemctl status filebeat --no-pager                # 服务状态
-sudo systemctl reset-failed filebeat                # crash-loop 后必做
-sudo journalctl -u filebeat -n 40 --no-pager        # 看日志
-ls -l /etc/filebeat/inputs.d/                       # 片段在不在
-sudo cat /etc/filebeat/inputs.d/xwops-task-<id>.yml # ★ 片段内容
-namei -l /opt/myapp/logs/app.log                    # ★ 权限逐级排查
-systemctl show filebeat -p ExecStart -p User        # 以谁的身份跑
+sudo filebeat test output                                 # ★ 发得出去吗
+systemctl status filebeat --no-pager                      # 服务状态
+sudo systemctl reset-failed filebeat                      # crash-loop 后必做
+sudo journalctl -u filebeat -n 40 --no-pager              # 看日志
+ls -l /etc/filebeat/inputs.d/                             # 片段在不在
+sudo cat /etc/filebeat/inputs.d/xwops-<服务名>-<id>.yml    # ★ 片段内容
+namei -l /opt/myapp/logs/web/all.log                      # ★ 权限逐级排查
+systemctl show filebeat -p ExecStart -p User              # 以谁的身份跑
 
 # ── ES ─────────────────────────────────────────────────
-curl -s http://192.0.2.163:9200/                                        # 版本 / 集群名
-curl -s "http://192.0.2.163:9200/_cat/indices?h=index,docs.count&s=creation.date:desc" | head
-curl -s "http://192.0.2.163:9200/_cat/aliases?v"                        # ILM 滚动别名
+curl -s http://192.0.2.163:9200/                          # 版本 / 集群名
+curl -s "http://192.0.2.163:9200/_cat/indices/myapp-log-*?h=index,docs.count,store.size&s=index:desc"
+curl -s "http://192.0.2.163:9200/myapp-log-*/_mapping" | grep -A2 service_name
+curl -s "http://192.0.2.163:9200/myapp-log-*/_ilm/explain?human=true" | grep -E '"index"|"phase"'
+curl -s "http://192.0.2.163:9200/_cat/aliases?v"          # ILM 滚动别名
 curl -s -X DELETE "http://192.0.2.163:9200/<要删的索引>"
 
 # ── 验收（造一行新日志）─────────────────────────────────
-echo "$(date '+%F %T') XWOPS-COLLECT-PROBE hello" | sudo tee -a /opt/myapp/logs/app.log
+echo "$(date '+%F %T') XWOPS-COLLECT-PROBE hello" | sudo tee -a /opt/myapp/logs/web/all.log
 sleep 30
-curl -s "http://192.0.2.163:9200/_cat/indices?h=index,docs.count&s=creation.date:desc" | head -5
+curl -s "http://192.0.2.163:9200/_cat/indices/myapp-log-*?h=index,docs.count&s=creation.date:desc" | head -3
 ```
 
 ---
@@ -659,10 +952,14 @@ curl -s "http://192.0.2.163:9200/_cat/indices?h=index,docs.count&s=creation.date
 
 | 占位值 | 含义 | 换成什么 |
 |---|---|---|
-| `192.0.2.163` | ES 地址（原：内网 ES 主机） | 你的 ES 地址 |
+| `192.0.2.163` | ES 地址 | 你的 ES 地址 |
 | `192.0.2.30` | 目标机地址 | 你的被采集机 IP |
-| `/opt/myapp/logs/*.log` | 被采集的日志路径 | 你的真实路径 |
+| `/opt/myapp/logs/web/all.log` | 被采集的日志路径 | 你的真实路径 |
 | `myapp` / `myapp-log` | 业务标识 / 索引前缀 | 你的业务名 |
+| `web` / `api` | 服务名示例（`service_name` 的值） | 你的服务目录名 |
+| `xwops-<服务名>-<id>.yml` | 目标机上的片段文件名 | 由任务名与任务 id 自动生成 |
+| `service_name` | 自定义字段：服务标识 | **不要改**（检索页按这个名字取值） |
+| `server_ip` | 平台自动注入的字段：目标机 IP | **不要改**（平台代码写死） |
 | `other-app-log-*` | 环境中其它应用的索引示例 | 你环境里已有的索引 |
 | `<账号>` `root` | SSH 凭据账号 | 你的账号 |
 
@@ -698,3 +995,11 @@ curl -s "http://192.0.2.163:9200/_cat/indices?h=index,docs.count&s=creation.date
 | [`UPDATE.md`](UPDATE.md) | 已上线环境的增量更新 |
 | **`LOG-COLLECT.md`（本文）** | 日志采集功能的**目标机 + 平台**完整配置与排查 |
 | [`PRODUCT-ARCHITECTURE.md`](PRODUCT-ARCHITECTURE.md) | 产品架构与模块划分 |
+
+---
+
+## 变更记录
+
+| 日期 | 变更 |
+|---|---|
+| 2026-11-05 | 重写为「一个任务 = 一条路径 = 一个 input」的单一采集模型；补 ES 保留策略与索引模板、`service_name` 字段约定、检索页筛选说明、片段文件名改为 `xwops-<服务名>-<id>.yml` |
