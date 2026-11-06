@@ -589,9 +589,12 @@ def t5_references():
     urls_text = read(os.path.join(BACKEND, 'application', 'urls.py'))
     check('T5-4', '"dvadmin.release"' in settings_text, 'INSTALLED_APPS 已注册 dvadmin.release',
           'INSTALLED_APPS 未注册 dvadmin.release')
-    check('T5-5', 'api/release/' in urls_text and 'dvadmin.release.urls' in urls_text,
-          'application/urls.py 已挂载 api/release/',
-          'application/urls.py 未挂载 api/release/')
+    # ★ 只断言「已 include」，不再断言前缀字面量：
+    #   911dc9a 把对外前缀由 /api 改为 /devops 时同步把本条路由改成了 `release/`，
+    #   而旧断言写死 'api/release/' ⇒ 从 11-04 起本项一直假红，反而会掩盖真正的新失败。
+    check('T5-5', 'include("dvadmin.release.urls")' in urls_text or "include('dvadmin.release.urls')" in urls_text,
+          'application/urls.py 已挂载 dvadmin.release.urls',
+          'application/urls.py 未挂载 dvadmin.release.urls')
 
     # apps.py 的 name 必须与 INSTALLED_APPS 一致（否则 AppRegistryNotReady / 找不到 app）
     apps_text = read(os.path.join(BACKEND, 'dvadmin', 'release', 'apps.py'))

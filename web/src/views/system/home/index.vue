@@ -163,7 +163,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, onMounted, onUnmounted, ref, nextTick, computed, reactive } from 'vue';
+import { defineComponent, onMounted, onUnmounted, onActivated, onDeactivated, ref, nextTick, computed, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import * as echarts from 'echarts';
@@ -184,6 +184,7 @@ export default defineComponent({
     let chart: echarts.ECharts | null = null;
     let severityChart: echarts.ECharts | null = null;
     let clockTimer: any = null;
+    let statsTimer: any = null;
 
     // 实时时钟
     const clock = ref({ time: '--:--:--', date: '', week: '' });
@@ -472,14 +473,50 @@ export default defineComponent({
       severityChart?.resize();
     };
 
+    // ------------------------------------------------------------------
+    // 统计自动刷新
+    //
+    // ★ 为什么要有：改造前 fetchStats() 只在 onMounted 拉一次，全页唯一的
+    //   setInterval 只驱动时钟 ⇒ 「秒在跳、数字不动」。用户看到的活跃告警数
+    //   其实是**打开首页那一刻**的库快照；告警在后台新增/恢复后，首页永远追不上，
+    //   于是出现「首页 2、点进去 6」这种看起来像 bug 的现象（11-06 复现）。
+    //
+    //   60s 而不是更短：单次请求要问 Alertmanager（3s 超时兜底），
+    //   且会重建两张 echarts；60s 足够跟上告警节奏，又不至于把浏览器拖住。
+    // ------------------------------------------------------------------
+    const startStatsTimer = () => {
+      if (statsTimer) clearInterval(statsTimer);
+      statsTimer = setInterval(fetchStats, 60000);
+    };
+    const stopStatsTimer = () => {
+      if (statsTimer) {
+        clearInterval(statsTimer);
+        statsTimer = null;
+      }
+    };
+
     onMounted(() => {
       updateClock();
       clockTimer = setInterval(updateClock, 1000);
       fetchStats();
+      startStatsTimer();
       window.addEventListener('resize', handleResize);
     });
+
+    // keep-alive 场景：从别的页面切回来时立刻重拉，不能等下一个 60s 周期。
+    // 组件没被 keep-alive 包裹时这两个钩子不会触发，不影响原有行为。
+    onActivated(() => {
+      fetchStats();
+      startStatsTimer();
+    });
+    onDeactivated(() => {
+      // 切走后停止轮询，避免后台标签页一直请求
+      stopStatsTimer();
+    });
+
     onUnmounted(() => {
       if (clockTimer) clearInterval(clockTimer);
+      stopStatsTimer();
       window.removeEventListener('resize', handleResize);
       chart?.dispose();
       severityChart?.dispose();

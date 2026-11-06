@@ -46,6 +46,24 @@ def _fmt(dt):
     return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else None
 
 
+def _active_alert_count(timeout=3):
+    """首页「活跃告警」数：优先问 Alertmanager，返回 (count, source)。
+
+    source='am' ⇒ 实时值，与「活跃告警」页面**同源**；
+    source='db' ⇒ AM 不可达，降级为库里的 firing 条数（可能是历史残留，仅供参考）。
+
+    ★ 必须短超时 + 全兜底：首页不能因为 AM 挂了就 500，也不能转圈 10 秒。
+    """
+    try:
+        from dvadmin.alert.services import query_active_alerts
+
+        return len(query_active_alerts(timeout=timeout) or []), "am"
+    except Exception:
+        from dvadmin.alert.models import AlertEvent
+
+        return AlertEvent.objects.filter(status="firing").count(), "db"
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def dashboard_stats(request):
@@ -92,8 +110,15 @@ def dashboard_stats(request):
 
     # 2. 告警统计（活跃 + 近 7 天级别分布）——告警是"事件流"，有菜单即看全量
     start = now - timedelta(days=7)
+    alert_source = "db"          # am=实时问 Alertmanager；db=降级为库值；none=无权限
     if vis["alerts"]:
-        active_alerts = AlertEvent.objects.filter(status="firing").count()
+        # ★ 活跃告警必须与「活跃告警」页面**同源**（10-14 定性、11-06 复发）
+        #   原先这里数库里的 AlertEvent.status='firing'，那只是「事件流快照」：
+        #   resolved 通知只要丢一次，那条记录就永远挂在 firing，没人关它；
+        #   而页面读的是 Alertmanager 实时状态 ⇒ 两个数必然分叉，且方向随机
+        #   （库里残留时首页偏大，AM 有新增而落库断链时首页偏小）。
+        #   现在改为直接问 AM；AM 不可达才降级回库值，并如实标记 source=db。
+        active_alerts, alert_source = _active_alert_count()
         week_events = AlertEvent.objects.filter(starts_at__gte=start)
         week_total = week_events.count()
         critical_count = week_events.filter(severity="critical").count()
@@ -101,6 +126,7 @@ def dashboard_stats(request):
         info_count = week_events.filter(severity="info").count()
     else:
         active_alerts = week_total = 0
+        alert_source = "none"
         critical_count = warning_count = info_count = 0
 
     # 3. 会话统计——与 SessionRecordViewSet.get_queryset 同口径
@@ -206,6 +232,9 @@ def dashboard_stats(request):
         },
         "alerts": {
             "active": active_alerts,
+            # 口径来源：am=实时问 Alertmanager（与告警页一致）；db=AM 不可达的降级值；
+            # none=当前用户看不到告警菜单。前端可据此决定要不要提示「数据源降级」。
+            "source": alert_source,
             "week_total": week_total,
             "critical": critical_count,
             "warning": warning_count,

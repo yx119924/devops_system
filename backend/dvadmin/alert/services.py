@@ -2,10 +2,13 @@
 """
 告警规则同步服务：把平台告警规则生成 Prometheus alerting rules 并热加载
 """
+import logging
 import os
 
 import requests
 import yaml
+
+logger = logging.getLogger(__name__)
 
 # Django 容器内路径（backend 挂载到 /backend），宿主机对应 backend/dvadmin/alert/rules
 RULES_DIR = "/backend/dvadmin/alert/rules"
@@ -264,10 +267,13 @@ def sync_rules_from_prometheus():
     return result
 
 
-def query_active_alerts():
-    """查询 Alertmanager 当前活跃告警"""
+def query_active_alerts(timeout=10):
+    """查询 Alertmanager 当前活跃告警。
+
+    timeout 可调：首页统计要短超时（3s），列表页要求完整（10s）。
+    """
     url = _require_url("alertmanager", "Alertmanager")
-    resp = requests.get(f"{url}/api/v2/alerts", timeout=10)
+    resp = requests.get(f"{url}/api/v2/alerts", timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 
@@ -453,13 +459,47 @@ def send_email(cfg, content):
     return True, {"sent": len(to_addrs)}
 
 
+# AlertEvent 各文本字段的模型上限（见 models.py）。超出会被 MySQL 严格模式拒绝
+# （Data too long），而这正是「一条超长、整批全丢」的触发点。
+_FIELD_LIMITS = {
+    "fingerprint": 64,
+    "alertname": 128,
+    "instance": 128,
+    "summary": 512,
+    "description": 1024,
+}
+
+
+def _clip(value, field):
+    """按模型字段上限截断字符串；None / 非字符串原样返回。
+
+    选择截断而不是丢弃：告警宁可少几个字，也不能整条不入库。
+    """
+    if not isinstance(value, str):
+        return value
+    limit = _FIELD_LIMITS.get(field)
+    if not limit or len(value) <= limit:
+        return value
+    return value[: limit - 1] + "…"
+
+
 def persist_alerts(payload):
     """把 Alertmanager webhook payload 持久化到 AlertEvent 表。
 
     firing：按 fingerprint upsert（已存在 firing 则更新，否则新建）。
     resolved：按 fingerprint 找到对应 firing 记录，置为 resolved 并写 ends_at；
              若找不到对应 firing 记录（如遗漏），也补录一条 resolved。
-    返回 (created_count, updated_count)。
+
+    返回 (created_count, updated_count, failed)；
+    failed 是 [(alertname, 原因)]，空列表表示整批全部落库成功。
+
+    ★ 为什么必须逐条兜底（2026-11-06 加固）：
+      单次 webhook 最多 100 条，而 Alertmanager 的 webhook **不重试**。
+      改造前循环体内没有 try/except，任何一条抛异常（典型是 summary>512 /
+      description>1024 触发 MySQL 严格模式 `Data too long`）都会让**该条之后的
+      告警全部丢失**，且 Celery 重试时每次卡在同一处 ⇒ 永久性缺失；日志里只有
+      一句「告警任务失败」，看不出是哪条、丢了几条。
+      现在改为：每条独立 try/except + 按字段上限截断，单条坏不影响整批。
     """
     from datetime import datetime
 
@@ -470,6 +510,7 @@ def persist_alerts(payload):
     alerts = payload.get("alerts", [])
     created = 0
     updated = 0
+    failed = []
     valid_severity = dict(SEVERITY_CHOICES)
 
     def _parse_ts(value):
@@ -487,59 +528,74 @@ def persist_alerts(payload):
             return None
 
     for a in alerts:
-        labels = a.get("labels", {}) or {}
-        annotations = a.get("annotations", {}) or {}
-        fingerprint = a.get("fingerprint") or ""
-        alertname = labels.get("alertname", "")
-        status = a.get("status", "firing")
-        severity = labels.get("severity", "warning")
-        if severity not in valid_severity:
-            severity = "warning"
-        instance = labels.get("instance", "")
-        summary = annotations.get("summary", "") or alertname
-        description = annotations.get("description", "")
-        starts_at = _parse_ts(a.get("startsAt"))
-        ends_at = _parse_ts(a.get("endsAt"))
+        alertname = ""
+        try:
+            labels = a.get("labels", {}) or {}
+            annotations = a.get("annotations", {}) or {}
+            fingerprint = _clip(a.get("fingerprint") or "", "fingerprint")
+            alertname = _clip(labels.get("alertname", ""), "alertname")
+            status = a.get("status", "firing")
+            severity = labels.get("severity", "warning")
+            if severity not in valid_severity:
+                severity = "warning"
+            instance = _clip(labels.get("instance", ""), "instance")
+            summary = _clip(annotations.get("summary", "") or alertname, "summary")
+            description = _clip(annotations.get("description", ""), "description")
+            starts_at = _parse_ts(a.get("startsAt"))
+            ends_at = _parse_ts(a.get("endsAt"))
 
-        if not fingerprint:
-            # 无指纹时退化为按 alertname+instance 查找
-            event = AlertEvent.objects.filter(alertname=alertname, instance=instance, status="firing").first()
-        else:
-            event = AlertEvent.objects.filter(fingerprint=fingerprint, status="firing").first()
+            if not fingerprint:
+                # 无指纹时退化为按 alertname+instance 查找
+                event = AlertEvent.objects.filter(alertname=alertname, instance=instance, status="firing").first()
+            else:
+                event = AlertEvent.objects.filter(fingerprint=fingerprint, status="firing").first()
 
-        if status == "firing":
-            if event:
-                event.severity = severity
-                event.summary = summary
-                event.description = description
-                event.labels = labels
-                event.starts_at = starts_at or event.starts_at
-                event.save(update_fields=["severity", "summary", "description", "labels", "starts_at"])
-                updated += 1
-            else:
-                AlertEvent.objects.create(
-                    fingerprint=fingerprint, alertname=alertname, status="firing",
-                    severity=severity, instance=instance, summary=summary,
-                    description=description, labels=labels, starts_at=starts_at, ends_at=None,
-                )
-                created += 1
-        else:  # resolved
-            if not event and fingerprint and starts_at:
-                event = AlertEvent.objects.filter(fingerprint=fingerprint, status='resolved', starts_at=starts_at).first()
-            if event:
-                event.status = "resolved"
-                event.ends_at = ends_at or timezone.now()
-                event.save(update_fields=["status", "ends_at"])
-                updated += 1
-            else:
-                AlertEvent.objects.create(
-                    fingerprint=fingerprint, alertname=alertname, status="resolved",
-                    severity=severity, instance=instance, summary=summary,
-                    description=description, labels=labels,
-                    starts_at=starts_at or ends_at or timezone.now(), ends_at=ends_at,
-                )
-                created += 1
-    return created, updated
+            if status == "firing":
+                if event:
+                    event.severity = severity
+                    event.summary = summary
+                    event.description = description
+                    event.labels = labels
+                    event.starts_at = starts_at or event.starts_at
+                    event.save(update_fields=["severity", "summary", "description", "labels", "starts_at"])
+                    updated += 1
+                else:
+                    AlertEvent.objects.create(
+                        fingerprint=fingerprint, alertname=alertname, status="firing",
+                        severity=severity, instance=instance, summary=summary,
+                        description=description, labels=labels, starts_at=starts_at, ends_at=None,
+                    )
+                    created += 1
+            else:  # resolved
+                if not event and fingerprint and starts_at:
+                    event = AlertEvent.objects.filter(fingerprint=fingerprint, status='resolved', starts_at=starts_at).first()
+                if event:
+                    event.status = "resolved"
+                    event.ends_at = ends_at or timezone.now()
+                    event.save(update_fields=["status", "ends_at"])
+                    updated += 1
+                else:
+                    AlertEvent.objects.create(
+                        fingerprint=fingerprint, alertname=alertname, status="resolved",
+                        severity=severity, instance=instance, summary=summary,
+                        description=description, labels=labels,
+                        starts_at=starts_at or ends_at or timezone.now(), ends_at=ends_at,
+                    )
+                    created += 1
+        except Exception as exc:
+            # 单条失败不拖累整批：记录后继续下一条
+            failed.append((alertname or "(未命名)", "%s: %s" % (type(exc).__name__, exc)))
+            logger.warning(
+                "告警落库失败，已跳过该条：alertname=%r err=%s: %s",
+                alertname, type(exc).__name__, exc, exc_info=True,
+            )
+
+    if failed:
+        logger.error(
+            "本次 webhook 共 %d 条告警，其中 %d 条落库失败：%s",
+            len(alerts), len(failed), failed,
+        )
+    return created, updated, failed
 
 
 def dispatch_alerts(payload):
