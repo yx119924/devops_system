@@ -1,6 +1,6 @@
 # Alertmanager 配置（平台告警）
 # ★ 本文件为可选组件：不在 docker-compose.yml 内，需独立部署 Alertmanager 时才用。
-#   webhook 指向的 IP 是占位值，部署时请替换（见 DEPLOY.md 附录 B）。
+#   webhook 指向的 IP 是占位值，部署时请替换（部署步骤见 docker/README.md）。
 global:
   resolve_timeout: 5m
 

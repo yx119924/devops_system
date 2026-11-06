@@ -1,6 +1,6 @@
 # 部署架构说明
 
-> 配套文档：[`DEPLOY.md`](DEPLOY.md)（部署步骤）、[`PRODUCT-ARCHITECTURE.md`](PRODUCT-ARCHITECTURE.md)（产品架构）
+> 配套文档：[`PRODUCT-ARCHITECTURE.md`](PRODUCT-ARCHITECTURE.md)（产品架构）、[`docker/README.md`](docker/README.md)（镜像清单与启动）
 
 ---
 

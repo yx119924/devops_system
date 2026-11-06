@@ -1,14 +1,14 @@
 # ==============================================================================
 # XwOps 平台 —— Docker Compose 编排
 #
-# 快速启动：见仓库根目录 DEPLOY.md
+# 快速启动：见 docker/README.md
 #
 # ★ 关于 image: 与 build: 并存
 #   - `docker compose up -d`          直接用本地已加载的镜像，不触发构建（推荐）
 #   - `docker compose up -d --build`  强制从 ./backend 与 ./web 源码重新构建
 #   两条路都通：运维拿成品镜像可一键启动；开发者拿源码也可自行构建。
 #
-# ★ 关于业务代码如何进入容器（非常重要，见 DEPLOY.md 第 5 节）
+# ★ 关于业务代码如何进入容器（非常重要，见 docker/README.md）
 #   web 镜像：前端已在镜像内编译完成（/usr/share/nginx/html）
 #   django / celery 镜像：只装了 Python 依赖，业务代码不含在镜像里，
 #                          靠下方 volumes 的 ./backend:/backend 挂载进入容器。

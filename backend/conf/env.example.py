@@ -52,7 +52,7 @@ REDIS_URL = f'redis://:{REDIS_PASSWORD or ""}@{REDIS_HOST}:6379'
 #
 #   ★★ 优先级：**本文件的值优先于** compose 环境变量 ALERT_WEBHOOK_SECRET。
 #      webhook.py 读的是 `getattr(settings, 'ALERT_WEBHOOK_SECRET', '') or os.environ.get(...)`，
-#      只有这里为空串时才会去读环境变量（DEPLOY.md 4.1 已同步说明）。
+#      只有这里为空串时才会去读环境变量。
 #      ⇒ 下面这个占位串有 34 字符，**能通过 ≥32 的长度检查**，security_preflight 不会报，
 #        若你只在 `.env` 里填了真值，平台仍拿占位串比对，Alertmanager 推来会是
 #        **401「认证失败」**（不是 503，极易误判成「密钥没配」）。

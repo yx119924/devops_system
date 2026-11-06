@@ -44,5 +44,5 @@ docker images | grep -E 'xwops/|mysql:8.0|redis:6.2.6' || {
 }
 
 echo
-echo "完成。接下来回到仓库根目录，按 DEPLOY.md 第 4 步（改配置）继续。"
-echo "★ 如果这次是自己改了代码重新打的包，见 DEPLOY.md 第 9 节「改前端代码」。"
+echo "完成。接下来回到仓库根目录，按 docker/README.md 的「改配置 → 启动 → 验证」继续。"
+echo "★ 如果这次是自己改了代码重新打的包，见 docker/README.md 的「改前端代码」一节。"

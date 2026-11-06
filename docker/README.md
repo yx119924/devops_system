@@ -39,7 +39,7 @@
 > （本批 `backend/requirements.txt` 无改动）。
 >
 > ★ 本 Release 另附 **`xwops-web-1.1.0.tar`**（31,110,144 字节，MD5 `997b1446abf2b2b6394b22fcbb7f695f`）：
-> 只更新前端时用它更快，对应 `UPDATE.md` §3 第 4 步的 web-only 流程。
+> 只更新前端时用它更快，可跳过后端与数据库步骤。
 >
 > ★ **镜像内部 tag 仍是 `xwops/*:1.0.0`** —— 与仓库 `docker-compose.yml` 里写的一致
 > ⇒ `docker load` 是**原地替换**，**`docker-compose.yml` 一行都不用改**。
@@ -50,7 +50,7 @@
 
 > ⚠️ **`django` / `celery` 镜像里没有业务代码**，这是 DVAdmin 的既有设计：
 > 代码通过 `docker-compose.yml` 的 `./backend:/backend` 挂载进容器。
-> 所以 **`backend/` 源码目录是运行必需品**，不能只拿镜像不要源码。详见 `DEPLOY.md` 第 5 节。
+> 所以 **`backend/` 源码目录是运行必需品**，不能只拿镜像不要源码。
 
 ---
 
@@ -109,7 +109,7 @@ redis          6.2.6-alpine      ...
 
 ## 四、之后做什么？
 
-回到仓库根目录，按 **`DEPLOY.md`** 从 **第 4 步（改配置）** 继续。
+回到仓库根目录，按 `README.md` 的启动步骤继续（改配置 → 启动 → 验证）。
 
 ---
 
@@ -126,8 +126,8 @@ bash docker/save-images.sh 1.1.0 --web-only   # 只打前端镜像（改前端�
 它会先确认镜像存在且**带 tag**（避免把 `<none>` 匿名镜像一起导出），再 `docker save`，
 最后生成 `checksums.txt`（md5）与 SHA256。
 
-**完整流程**（改前端 → 重建 → 打包 → 送到目标机）见
-**`DEPLOY.md` 第 9 节「改前端代码」**。其中有一条关键前提：
+**完整流程**（改前端 → 重建 → `save-images.sh` 打包 → `load-images.sh` 送进目标机）。
+其中有一条关键前提：
 
 > ⚠️ **内网机器不能就地构建前端**。
 > `docker_env/web/Dockerfile` 里有

@@ -95,7 +95,7 @@ class AlertRuleViewSet(CustomModelViewSet):
                     f"{len(verify['missing'])} 条规则：{', '.join(verify['missing'][:5])}"
                     f"{' 等' if len(verify['missing']) > 5 else ''}。"
                     f"这说明 Prometheus 加载的规则目录不是本机 {path} —— "
-                    f"按 DEPLOY.md 附录 B 第 4 条把该目录挂载/共享给 Prometheus 即可")
+                    f"需把该目录挂载/共享给 Prometheus，并确保规则目录配置与实际加载路径一致")
         loaded_from = sorted({f for f in verify["files"].values() if f})
         return DetailResponse(
             data={"file": path, **verify},

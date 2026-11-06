@@ -684,7 +684,7 @@ class ElasticsearchSourceViewSet(CustomModelViewSet):
             return DetailResponse(
                 data={"hosts": [], "services": [],
                       "notes": notes + ["ES 拒绝聚合（HTTP 400）：server_ip / service_name 可能不是 keyword。"
-                                        "按 LOG-COLLECT.md 第 11 章建索引模板后重写数据。"]},
+                                        "需为索引建立正确的字段映射（索引模板）后重写数据。"]},
                 msg="字段类型不支持聚合")
         if resp.status_code != 200:
             return ErrorResponse(msg=f"ES 返回 HTTP {resp.status_code}：{resp.text[:300]}")

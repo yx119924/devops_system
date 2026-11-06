@@ -1,6 +1,6 @@
 # Prometheus 配置（平台监控聚合 + 告警）
 # ★ 本文件为可选组件：不在 docker-compose.yml 内，需独立部署 Prometheus 时才用。
-#   其中所有 IP 均为占位值，部署时请替换为你的实际地址（见 DEPLOY.md 附录 B）。
+#   其中所有 IP 均为占位值，部署时请替换为你的实际地址（部署步骤见 docker/README.md）。
 global:
   scrape_interval: 30s      # 采集间隔 30s，控制数据量
   evaluation_interval: 30s  # 规则评估间隔

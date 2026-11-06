@@ -3,6 +3,11 @@
 本仓库基于开源项目 [DVAdmin3](https://gitee.com/huge-dream/django-vue3-admin) 二次开发，
 上游更新日志保留在文末。
 
+> **阅读说明**：本文是历史变更记录，叙述的是**当时**的状态。文中提到的 `DEPLOY.md`、
+> `UPDATE.md`、`LOG-COLLECT.md` 三份运维手册已于 2026-11-06 从公开仓库移除
+> （内容涉及内网地址与账号，待系统完善后再随仓库发布）；部署与镜像启动请改看
+> [`docker/README.md`](docker/README.md)。
+
 ---
 
 ## XwOps v1.1.0（2026-10-09）
@@ -57,7 +62,7 @@ docker exec dvadmin3-django python /backend/register_release.py --apply     # �
 
 ### 升级注意
 
-> ★ **逐条命令见 [`UPDATE.md`](UPDATE.md) · 「v1.1.0 增量（2026-10-09）」一节**。下面只是要点。
+> ★ **逐条命令见 `UPDATE.md` · 「v1.1.0 增量（2026-10-09）」一节**（该文档已从公开仓库移除）。下面只是要点。
 
 - 需要执行 **2 次迁移**：`python manage.py migrate release`（4 张新表）+
   `python manage.py migrate bastion`（`CommandLog.source` 新增 `release` 取值）。
@@ -101,7 +106,7 @@ docker exec dvadmin3-django python /backend/register_release.py --apply     # �
 
 ### 升级注意
 
-> ★ **逐条命令见 [`UPDATE.md`](UPDATE.md) · 增量更新手册**。下面只是要点。
+> ★ **逐条命令见 `UPDATE.md` · 增量更新手册**（该文档已从公开仓库移除）。下面只是要点。
 
 - 需要执行 **1 次数据库迁移**：`python manage.py migrate alert`（新增 2 列 + 1 步数据迁移）。
 - ★ 改了前端源码 ⇒ **必须重建 web 镜像**（本项目前端是编译进镜像的，不是挂载）。
