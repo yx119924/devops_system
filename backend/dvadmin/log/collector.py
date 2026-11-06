@@ -651,6 +651,23 @@ def dropped_level_condition(task):
     return "\n".join(lines)
 
 
+def _log_timezone():
+    """日志正文里那些「没有时区的时间」该按哪个时区解释。
+
+    ★ 必须显式传给 filebeat 的 ``timestamp`` processor（2026-11-06 踩过）：
+      它的 ``layouts`` 里若不含偏移（如 ``2006-01-02 15:04:05``），默认按 **UTC** 解析。
+      于是北京时间 ``2026-11-06 09:03:49`` 被写成 ``2026-11-06T09:03:49Z`` —— 一个
+      **看着像 UTC、其实是本地时间**的伪时间戳。检索页按 UTC 转 +8 后变成 17:03，
+      而另一批没配时间提取的索引（@timestamp 是真实采集时刻的 UTC）显示又正常，
+      于是同一个人看到「有的索引对、有的索引差 8 小时」。
+    """
+    try:
+        from django.conf import settings
+        return getattr(settings, "TIME_ZONE", None) or "Asia/Shanghai"
+    except Exception:                                                   # noqa: BLE001
+        return "Asia/Shanghai"
+
+
 def build_processors(task, server_ip, base=6):
     """按顺序生成 processors 列表。
 
@@ -712,6 +729,9 @@ def build_processors(task, server_ip, base=6):
             "          field: log_time",
             "          layouts:",
             "            - %s" % yaml_sq(task.time_layout.strip()),
+            # ★ timezone 不能省：没有它，filebeat 把无偏移的 layout 当 UTC 解析，
+            #   写入的是「本地时间冒充 UTC」的伪时间戳（详见 _log_timezone 的注释）。
+            "          timezone: %s" % yaml_sq(_log_timezone()),
             "          ignore_failure: true",
             "      - drop_fields:",
             "          fields: [log_time]",

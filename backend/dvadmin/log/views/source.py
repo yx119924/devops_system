@@ -10,6 +10,7 @@ ES 日志数据源管理 + 日志检索代理
 import logging
 import re
 import time
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 import requests
 from rest_framework import serializers
@@ -132,17 +133,87 @@ def _safe_index(value):
 #   ⇒ 不做归一化的话，用户在检索页**一旦选了时间范围，查询必然 400**。
 _TS_SPACE_RE = re.compile(r'^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$')
 
+# 检索页展示的时间格式
+_TS_OUT_FMT = '%Y-%m-%d %H:%M:%S'
+
+
+def _local_tz():
+    """项目时区。
+
+    ★ 不用 ``django.utils.timezone.localtime()``：本项目 ``USE_TZ = False``，
+      该函数对 aware datetime 的处理依赖 USE_TZ，在不同配置下表现不一致。
+      直接取 ``settings.TIME_ZONE`` 构造 ZoneInfo 最可控（取不到时退回 UTC+8）。
+    """
+    try:
+        from zoneinfo import ZoneInfo
+
+        from django.conf import settings
+        return ZoneInfo(getattr(settings, 'TIME_ZONE', None) or 'Asia/Shanghai')
+    except Exception:                                                   # noqa: BLE001
+        return dt_timezone(timedelta(hours=8))
+
+
+def _fmt_ts(value):
+    """把 ES 的时间值格式化成项目时区的可读字符串（``YYYY-MM-DD HH:mm:ss``）。
+
+    ★ 为什么在服务端转、不在前端转（2026-11-06 用户反馈「时间少 8 小时」）：
+      ES 返回的 ``@timestamp`` 是 UTC，形如 ``2026-11-06T01:01:02.658Z``。
+      前端若用 ``new Date()`` 渲染，会按**客户端时区**显示 —— 同一条日志，
+      在公司看是 09:01、在别的时区连 VPN 看就是另一个数，两个人截图对不上。
+      统一在服务端按 ``settings.TIME_ZONE`` 转，显示口径只有一处。
+
+    ★ 认不出来的格式**原样返回**，不返回空 —— 宁可显示一个怪字符串，
+      也不要让一条本该有时间的日志看起来像「没有时间」。
+    """
+    if value in (None, ''):
+        return ''
+    # 数字：可能是 epoch 秒，也可能是毫秒（不同采集端写法不同）
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        secs = float(value)
+        if secs > 1e11:                                                 # 毫秒
+            secs /= 1000.0
+        try:
+            dt = datetime.fromtimestamp(secs, tz=dt_timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return str(value)
+        return dt.astimezone(_local_tz()).strftime(_TS_OUT_FMT)
+
+    s = str(value).strip()
+    if not s:
+        return ''
+    # Python 3.11 之前的 fromisoformat 不认结尾的 Z
+    iso = s[:-1] + '+00:00' if s.endswith('Z') else s
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return s
+    if dt.tzinfo is None:
+        # ES 的 @timestamp 默认就是 UTC；没有时区后缀时按 UTC 解释
+        dt = dt.replace(tzinfo=dt_timezone.utc)
+    return dt.astimezone(_local_tz()).strftime(_TS_OUT_FMT)
+
 
 def _norm_ts(value):
-    """把 'YYYY-MM-DD HH:mm:ss' 归一化成 ES 认的 ISO 8601 'YYYY-MM-DDTHH:mm:ss'。
+    """把前端传来的**本地时间**归一化成 ES 能精确理解的 UTC ISO 8601。
 
-    其余形式（带 T / 带时区 / `now-1d` 日期数学）原样透传；空值统一返回 None。
+    ★ 两步都不能少（2026-11-06 修）：
+      ① 空格 → ``T``：ES 的 ``strict_date_optional_time`` 不认空格（见上一条注释）
+      ② **补时区并转 UTC**：``2026-11-06T09:00:00`` 这种**无时区**字符串，
+         ES 一律按 **UTC** 解释。而用户在检索页选的是**北京时间** 09:00，
+         直接发过去就变成 UTC 09:00 = 北京 17:00，查询窗口整整偏 8 小时。
+         表现是「选了最近 1 小时，一条都没有」，而日志其实是有的 ——
+         这种偏差极难往「时区」上想，所以宁可在这里显式转一次。
+      其余形式（已带时区 / ``now-1d`` 日期数学）原样透传。
     """
     s = str(value or '').strip()
     if not s:
         return None
     m = _TS_SPACE_RE.match(s)
-    return f"{m.group(1)}T{m.group(2)}" if m else s
+    if m:
+        naive = datetime.strptime(s, _TS_OUT_FMT)
+        aware = naive.replace(tzinfo=_local_tz())
+        return aware.astimezone(dt_timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    return s
 
 
 def _merge_index(name):
@@ -511,7 +582,8 @@ class ElasticsearchSourceViewSet(CustomModelViewSet):
             logs.append({
                 "id": h.get('_id'),
                 "index": h.get('_index'),
-                "timestamp": _pick(src, ('@timestamp', 'timestamp', 'time')) or '',
+                # ★ 统一转成项目时区再返回（ES 给的是 UTC，直接用会少 8 小时）
+                "timestamp": _fmt_ts(_pick(src, ('@timestamp', 'timestamp', 'time'))),
                 # 没有独立 level 字段的索引（如 filebeat 原样采集），从正文里提取
                 "level": _pick(src, ('level', 'log_level', 'severity')) or _extract_level(message),
                 "message": message,
