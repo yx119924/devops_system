@@ -179,6 +179,23 @@ const handleDeleteMenu = () => {
 };
 
 /**
+ * 用后端返回的 [(id, sort)] 重排同级节点
+ * ★ 为什么不再"先改 UI 再请求"（2026-11-06 修复）：
+ *   旧写法先把本地 childNodes 挪一位，再调接口，且不校验结果。后端因 sort
+ *   重复而静默失败时，界面已经动了 ⇒ 用户以为成功，刷新就回滚。
+ *   现在改为「等接口成功 → 按后端给的权威顺序重排」，界面顺序永远等于库里顺序。
+ *   直接重排而不重新请求，是因为 el-tree 的 Node 经 reactive() 包裹
+ *   （element-plus node.mjs:177），childNodes 是响应式数组，原地 sort 即可刷新，
+ *   且不会丢掉展开态与选中态。
+ */
+const applyServerOrder = (node: Node | null, plan?: Array<{ id: number; sort: number }>) => {
+	if (!node || !Array.isArray(plan) || !plan.length) return;
+	const siblings = node.parent?.childNodes || [];
+	const rank = new Map(plan.map((item, idx) => [item.id, idx]));
+	siblings.sort((a, b) => (rank.get(a.data.id) ?? 0) - (rank.get(b.data.id) ?? 0));
+};
+
+/**
  * 移动操作
  */
 const handleSort = async (type: string) => {
@@ -188,23 +205,16 @@ const handleSort = async (type: string) => {
 	}
 	if (sortDisable.value) return;
 
-	const parentList = treeSelectNode.value?.parent.childNodes || [];
-	const index = parentList.findIndex((i) => i.data.id === treeSelectMenu.value.id);
-	const record = parentList.find((i) => i.data.id === treeSelectMenu.value.id);
-
-	if (type === 'up') {
-		if (index === 0) return;
-		parentList.splice(index - 1, 0, record as any);
-		parentList.splice(index + 1, 1);
-		sortDisable.value = true;
-		await menuMoveUp({ menu_id: treeSelectMenu.value.id });
-		sortDisable.value = false;
-	}
-	if (type === 'down') {
-		parentList.splice(index + 2, 0, record as any);
-		parentList.splice(index, 1);
-		sortDisable.value = true;
-		await menuMoveDown({ menu_id: treeSelectMenu.value.id });
+	const node = treeSelectNode.value;
+	sortDisable.value = true;
+	try {
+		const res: any =
+			type === 'up' ? await menuMoveUp({ menu_id: treeSelectMenu.value.id }) : await menuMoveDown({ menu_id: treeSelectMenu.value.id });
+		applyServerOrder(node, res?.data);
+	} catch (e) {
+		// 已到边界时后端返回 ErrorResponse，提示由 service.ts 拦截器统一弹出。
+		// 这里必须吞掉异常，否则 sortDisable 永远为 true ⇒ 之后所有点击被锁死。
+	} finally {
 		sortDisable.value = false;
 	}
 };

@@ -13,6 +13,7 @@ from rest_framework.decorators import action
 from dvadmin.system.models import Menu, RoleMenuPermission
 from dvadmin.system.views.menu_button import MenuButtonSerializer
 from dvadmin.utils.json_response import SuccessResponse, ErrorResponse
+from dvadmin.utils.menu_sort import reorder_siblings
 from dvadmin.utils.serializers import CustomModelSerializer
 from dvadmin.utils.viewset import CustomModelViewSet
 
@@ -134,7 +135,10 @@ class MenuViewSet(CustomModelViewSet):
                 queryset = self.queryset.filter()
         else:
             queryset = self.queryset.filter(parent__isnull=True)
-        queryset = self.filter_queryset(queryset)
+        # ★ 必须带 id 做 tie-break：同父同 sort 的行（线上顶级曾有 3 个 sort=3）
+        #   若无 id 次序，MySQL 对不同查询计划可能给出不同顺序 ⇒ 菜单管理树与
+        #   侧边栏两个视图对不上。详见 dvadmin/utils/menu_sort.py 模块注释。
+        queryset = self.filter_queryset(queryset).order_by('sort', 'id')
         serializer = MenuSerializer(queryset, many=True, request=request)
         data = serializer.data
         return SuccessResponse(data=data)
@@ -144,11 +148,11 @@ class MenuViewSet(CustomModelViewSet):
         """用于前端获取当前角色的路由"""
         user = request.user
         if user.is_superuser:
-            queryset = self.queryset.filter(status=1).order_by("sort")
+            queryset = self.queryset.filter(status=1).order_by("sort", "id")
         elif user.is_authenticated:
             role_list = user.role.values_list('id', flat=True)
             menu_list = RoleMenuPermission.objects.filter(role__in=role_list).values_list('menu_id', flat=True)
-            queryset = Menu.objects.filter(id__in=menu_list).order_by("sort")
+            queryset = Menu.objects.filter(id__in=menu_list).order_by("sort", "id")
         else:
             queryset = self.queryset.none()
         serializer = WebRouterSerializer(queryset, many=True, request=request)
@@ -166,6 +170,7 @@ class MenuViewSet(CustomModelViewSet):
             role_list = user.role.values_list('id', flat=True)
             menu_list = RoleMenuPermission.objects.filter(role__in=role_list).values_list('menu_id')
             queryset = Menu.objects.filter(id__in=menu_list)
+        queryset = queryset.order_by("sort", "id")
         serializer = WebRouterSerializer(queryset, many=True, request=request)
         data = serializer.data
         return SuccessResponse(data=data, total=len(data), msg=_("Query successful"))
@@ -173,29 +178,50 @@ class MenuViewSet(CustomModelViewSet):
     @action(methods=['POST'], detail=False, permission_classes=[])
     def move_up(self, request):
         """菜单上移"""
-        menu_id = request.data.get('menu_id')
-        try:
-            menu = Menu.objects.get(id=menu_id)
-        except Menu.DoesNotExist:
-            return ErrorResponse(msg=_("Menu does not exist"))
-        previous_menu = Menu.objects.filter(sort__lt=menu.sort, parent=menu.parent).order_by('-sort').first()
-        if previous_menu:
-            previous_menu.sort, menu.sort = menu.sort, previous_menu.sort
-            previous_menu.save()
-            menu.save()
-        return SuccessResponse(data=[], msg=_("Move up successful"))
+        return self._move_menu(request, 'up')
 
     @action(methods=['POST'], detail=False, permission_classes=[])
     def move_down(self, request):
         """菜单下移"""
-        menu_id = request.data['menu_id']
+        return self._move_menu(request, 'down')
+
+    def _move_menu(self, request, direction):
+        """同级内上移/下移一位。
+
+        ★ 不再用 sort__lt / sort__gt 找"相邻"（2026-11-06 修复）：
+          同父同 sort 时，前者会静默不生效（却回成功），后者会跨位跳转。
+          正解见 dvadmin/utils/menu_sort.py：按 (sort, id) 排稳 → 相邻交换
+          → 整组重编 1..N，顺带把该组的重复 sort 规范掉。
+        """
+        menu_id = request.data.get('menu_id')
+        if not menu_id:
+            return ErrorResponse(msg=str(_("请先选择要移动的菜单")))
         try:
             menu = Menu.objects.get(id=menu_id)
         except Menu.DoesNotExist:
             return ErrorResponse(msg=_("Menu does not exist"))
-        next_menu = Menu.objects.filter(sort__gt=menu.sort, parent=menu.parent).order_by('sort').first()
-        if next_menu:
-            next_menu.sort, menu.sort = menu.sort, next_menu.sort
-            next_menu.save()
-            menu.save()
-        return SuccessResponse(data=[], msg=_("Move down successful"))
+
+        siblings = list(Menu.objects.filter(parent=menu.parent))
+        plan, moved = reorder_siblings(
+            [{'id': item.id, 'sort': item.sort} for item in siblings],
+            menu.id,
+            direction,
+        )
+        if not moved:
+            msg = "已经是第一个菜单，无法上移" if direction == 'up' else "已经是最后一个菜单，无法下移"
+            return ErrorResponse(msg=str(_(msg)))
+
+        by_id = {item.id: item for item in siblings}
+        changed = []
+        for mid, new_sort in plan:
+            obj = by_id[mid]
+            if obj.sort != new_sort:
+                obj.sort = new_sort
+                changed.append(obj)
+        if changed:
+            Menu.objects.bulk_update(changed, ['sort'])
+
+        return SuccessResponse(
+            data=[{'id': mid, 'sort': new_sort} for mid, new_sort in plan],
+            msg=_("Move successful"),
+        )
