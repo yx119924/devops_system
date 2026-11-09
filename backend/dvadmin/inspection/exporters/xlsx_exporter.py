@@ -88,6 +88,37 @@ def _pct(n, total):
     return n * 100.0 / total if total else 0.0
 
 
+def _databar(ws, first_row, last_row, col_letter, color="5B9BD5"):
+    """Excel 原生数据条。
+
+    ★ 别再用 `█` 字符拼条形图：那玩意依赖字体有没有该字形、还随列宽变形，
+      Word 里直接渲染成一串黑方块。Excel 的数据条是原生对象，自动按区间缩放，
+      打印和转 PDF 都不会走样。
+
+    参数用「首行 / 末行 / 列字母」而不是范围字符串，是为了能拦住空表：
+    零告警日没有数据行，拼出 "D4:D3" 这种反向范围会直接 ValueError。
+    """
+    if last_row < first_row:
+        return
+    cell_range = "%s%d:%s%d" % (col_letter, first_row, col_letter, last_row)
+
+    from openpyxl.formatting.formatting import ConditionalFormatting
+    from openpyxl.formatting.rule import DataBarRule
+    from openpyxl.worksheet.cell_range import MultiCellRange
+
+    # ★ openpyxl 3.1 的坑：ConditionalFormattingList.add() 看似接受 "C4:C14" 字符串，
+    #   但内部 ConditionalFormatting(range_string) 的 sqref 是强类型 MultiCellRange，
+    #   传字符串当场 TypeError；而直接传 MultiCellRange 又会在写文件时
+    #   报 'MultiCellRange' object has no attribute 'to_tree'。
+    #   唯一可行路径：自己构造 ConditionalFormatting 对象再传进去。
+    cf = ConditionalFormatting()
+    cf.sqref = MultiCellRange(cell_range)
+    ws.conditional_formatting.add(
+        cf,
+        DataBarRule(start_type="num", start_value=0, end_type="max",
+                    color=color, showValue=True, minLength=None, maxLength=None))
+
+
 def _build_details(d):
     """明细直接取自 aggregate 输出的 d["details"]。
 
@@ -181,6 +212,7 @@ def render(d, out_path):
                 for i, c in enumerate(d["categories"], 1)]
         _body(ws, r, rows, ["center", "left", "center", "center", "left"],
               True, [8, 18, 12, 10, 44])
+        _databar(ws, r, r + len(rows) - 1, "C")
         ws.freeze_panes = "A%d" % r
         ws.sheet_view.showGridLines = False
 
@@ -197,20 +229,20 @@ def render(d, out_path):
                      "%.1f%%" % _pct(acc, d["total"])])
     _body(ws, r, rows, ["center", "left", "left", "center", "center", "center"],
           True, [8, 30, 16, 12, 10, 12])
+    _databar(ws, r, r + len(rows) - 1, "D")
     ws.freeze_panes = "A%d" % r
     ws.sheet_view.showGridLines = False
 
     # ---------------- Sheet 5 时段分布
     ws = wb.create_sheet("时段分布")
     r = _sheet_title(ws, "3.4  告警时段分布（0—23 时）", 4)
-    _header_row(ws, r, ["时段", "数量（条）", "占全日", "分布"])
+    _header_row(ws, r, ["时段", "数量（条）", "占全日"])
     r += 1
-    mx = max(h["count"] for h in d["hourly"]) or 1
     rows = [["%02d:00—%02d:00" % (h["hour"], h["hour"] + 1), h["count"],
-             "%.1f%%" % _pct(h["count"], d["total"]),
-             "█" * int(round(h["count"] / mx * 24))]
+             "%.1f%%" % _pct(h["count"], d["total"])]
             for h in d["hourly"]]
-    _body(ws, r, rows, ["center", "center", "center", "left"], True, [16, 12, 10, 30])
+    _body(ws, r, rows, ["center", "center", "center"], True, [16, 14, 12])
+    _databar(ws, r, r + len(rows) - 1, "B")
     ws.freeze_panes = "A%d" % r
     ws.sheet_view.showGridLines = False
 

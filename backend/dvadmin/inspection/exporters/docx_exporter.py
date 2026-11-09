@@ -286,14 +286,6 @@ def _kv_table(doc, pairs, widths=(3.6, 12.4)):
     return table
 
 
-def _bar(text, value, max_value, width=20, color=C_HEAD):
-    """用全角方块在表格里画条形图 —— 导出后肉眼可读，不依赖图片。"""
-    if max_value <= 0:
-        return ""
-    n = int(round(value / max_value * width))
-    return text + "  " + "█" * max(n, 0)
-
-
 def _footer_page_number(section):
     p = section.footer.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -425,33 +417,30 @@ def render(data, out_path):
 
     if d["categories"]:
         _sub_title(doc, "3.2  告警类别分布")
-        max_cat = max(c["count"] for c in d["categories"])
         _data_table(
             doc,
-            ["序号", "告警类别", "数量", "占比", "主要来源", "分布"],
+            ["序号", "告警类别", "数量（条）", "占比", "主要来源（该类占比最高的规则）"],
             [[str(i), c["name"], str(c["count"]), "%.1f%%" % c["ratio"],
-              c["top_type"], _bar("", c["count"], max_cat, width=14)]
+              c["top_type"]]
              for i, c in enumerate(d["categories"], 1)],
-            widths=[1.2, 3.0, 1.5, 1.5, 5.6, 3.4],
+            widths=[1.2, 3.2, 2.2, 1.8, 7.8],
             aligns=[WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.LEFT,
                     WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.CENTER,
-                    WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.LEFT],
+                    WD_ALIGN_PARAGRAPH.LEFT],
         )
 
     if d["top_types"]:
         _sub_title(doc, "3.3  告警类型分布（TOP %d）" % len(d["top_types"]))
-        max_cnt = max(t["count"] for t in d["top_types"])
         _data_table(
             doc,
-            ["序号", "告警类型", "所属类别", "数量", "占比", "分布"],
+            ["序号", "告警类型", "所属类别", "数量（条）", "占比"],
             [[str(i), t["name_cn"], t["category"], str(t["count"]),
-              "%.1f%%" % (t["count"] / d["total"] * 100 if d["total"] else 0),
-              _bar("", t["count"], max_cnt, width=14)]
+              "%.1f%%" % (t["count"] / d["total"] * 100 if d["total"] else 0)]
              for i, t in enumerate(d["top_types"], 1)],
-            widths=[1.2, 5.2, 2.8, 1.5, 1.5, 4.0],
+            widths=[1.2, 7.4, 3.8, 2.0, 1.8],
             aligns=[WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.LEFT,
                     WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.CENTER,
-                    WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.LEFT],
+                    WD_ALIGN_PARAGRAPH.CENTER],
         )
 
     _sub_title(doc, "3.4  告警时段分布（0—23 时）")
