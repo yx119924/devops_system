@@ -20,8 +20,11 @@
   docker exec dvadmin3-django python /backend/register_inspection.py             # 再写
 
 参数：
-  --dry-run   只打印，不写库
-  --skip-menu 只注册按钮/授权，不动菜单
+  --dry-run    只打印，不写库
+  --skip-menu  只注册按钮/授权，不动菜单
+  --roles      指定哪些角色拿「全部按钮」（查询 + 导出），逗号分隔，key 或中文名都行
+               例：--roles admin,ops,developer,tester
+               不传则默认「管理员 + 运维」；只读角色固定只给查看与导出（GET）
 """
 import os
 import sys
@@ -68,6 +71,19 @@ ADMIN_ROLE_HINTS = ("超级管理员", "管理员", "运维")
 
 # 只读角色也能用的按钮（导出属于只读操作，报告是要给人看的）
 READONLY_EXTRA = {"inspection:ExportWord", "inspection:ExportExcel"}
+
+
+def _parse_roles(argv):
+    """--roles admin,ops,developer,tester —— 支持角色 key，也支持中文角色名。"""
+    for i, a in enumerate(argv):
+        if a == "--roles" and i + 1 < len(argv):
+            return [x.strip() for x in argv[i + 1].split(",") if x.strip()]
+        if a.startswith("--roles="):
+            return [x.strip() for x in a.split("=", 1)[1].split(",") if x.strip()]
+    return []
+
+
+TARGET_ROLES = _parse_roles(sys.argv)
 
 
 def setup_django():
@@ -226,12 +242,27 @@ def main():
     print("[ok] 菜单授权：%d 个角色 × %d 个菜单 → 新增 %d 条"
           % (len(all_roles), len(menu_map), m_cnt))
 
-    grant_roles = list(admin_roles)
-    if ops_role and ops_role.id not in seen:
-        grant_roles.append(ops_role)
-    if not grant_roles:
-        print("[警告] 没识别到管理员/ops 角色 → 兜底把所有按钮授给全部角色（请自行复核）")
-        grant_roles = all_roles
+    # 决定哪些角色拿「全部按钮」（查询 + 两个导出）
+    if TARGET_ROLES:
+        grant_roles = []
+        for token in TARGET_ROLES:
+            r = (Role.objects.filter(key=token).first()
+                 or Role.objects.filter(name=token).first())
+            if r is None:
+                print("[警告] 找不到角色：%s" % token)
+                continue
+            grant_roles.append(r)
+            print("[ok] 匹配角色：%s（key=%s）" % (r.name, r.key))
+        if not grant_roles:
+            print("[FAIL] --roles 一个都没匹配上，可用 key：admin / ops / developer / tester / readonly")
+            return
+    else:
+        grant_roles = list(admin_roles)
+        if ops_role and ops_role.id not in seen:
+            grant_roles.append(ops_role)
+        if not grant_roles:
+            print("[警告] 没识别到管理员/ops 角色 → 兜底把所有按钮授给全部角色（请自行复核）")
+            grant_roles = all_roles
 
     cnt_full = 0
     for r in grant_roles:
@@ -239,8 +270,8 @@ def main():
             _, c = RoleMenuButtonPermission.objects.update_or_create(
                 role=r, menu_button=b, defaults={"data_range": 3})
             cnt_full += 1 if c else 0
-    print("[ok] 完整按钮授权：%s → 新增 %d 条"
-          % (", ".join(r.name for r in grant_roles), cnt_full))
+    print("[ok] 全部按钮授权：%s → 新增 %d 条"
+          % ("、".join(r.name for r in grant_roles), cnt_full))
 
     cnt_ro = 0
     if readonly_role:
