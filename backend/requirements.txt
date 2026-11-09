@@ -14,6 +14,9 @@ pypinyin==0.51.0
 ua-parser==0.18.0
 pyparsing==3.1.2
 openpyxl==3.1.5
+# ★ 巡检日报 Word 导出（inspection/exporters/docx_exporter.py）。
+#   变更本行后必须重建 django 镜像，仅重启容器不会安装依赖。
+python-docx==1.1.2
 requests==2.32.4
 typing-extensions==4.12.2
 tzlocal==5.2

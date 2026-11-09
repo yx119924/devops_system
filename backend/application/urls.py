@@ -111,6 +111,7 @@ urlpatterns = (
     path("jenkins/", include("dvadmin.jenkins.urls")),
     path("release/", include("dvadmin.release.urls")),
     path("aiagent/", include("dvadmin.aiagent.urls")),
+    path("inspection/", include("dvadmin.inspection.urls")),
             path("dashboard/stats/", dashboard_stats),
             path("login/", LoginView.as_view(), name="token_obtain_pair"),
             path("logout/", LogoutView.as_view(), name="token_obtain_pair"),
