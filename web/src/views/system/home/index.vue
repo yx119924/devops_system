@@ -57,7 +57,7 @@
             <div class="panel-chips">
               <span class="chip chip-danger">严重 {{ alertSummary.critical }}</span>
               <span class="chip chip-warn">警告 {{ alertSummary.warning }}</span>
-              <span class="chip chip-total">本周共 {{ alertSummary.week_total }} 条</span>
+              <span class="chip chip-total">近 7 天共 {{ alertSummary.week_total }} 条</span>
             </div>
           </div>
           <div ref="chartRef" class="trend-chart"></div>
@@ -220,7 +220,7 @@ export default defineComponent({
     const dangerToday = ref(0);
     const jenkinsCount = ref(0);
     const trend = ref<{ date: string; weekday: string; count: number }[]>([]);
-    const alertSummary = ref({ critical: 0, warning: 0, info: 0, week_total: 0 });
+    const alertSummary = ref({ critical: 0, warning: 0, info: 0, week_total: 0, total_all: 0 });
     const recentAlerts = ref<any[]>([]);
     const recentSessions = ref<any[]>([]);
     const activities = ref<any[]>([]);
@@ -309,6 +309,8 @@ export default defineComponent({
           warning: d.alerts?.warning ?? 0,
           info: d.alerts?.info ?? 0,
           week_total: d.alerts?.week_total ?? 0,
+          // 全部历史条数：历史告警卡的主数字用它，保证与 /alertEvent 页面一致
+          total_all: d.alerts?.total_all ?? 0,
         };
         recentAlerts.value = d.recent_alerts || [];
         recentSessions.value = d.recent_sessions || [];
@@ -336,7 +338,10 @@ export default defineComponent({
           label: '活跃告警', icon: Bell, color: '#f56c6c', bg: '#fef0f0',
           // ★ 活跃告警 → 跳「活跃告警」菜单（/alertManage，实时透传 Alertmanager），
           //   不要跳 /alertEvent（历史告警）—— 那里是落库的历史事件
-          path: '/alertManage', extra: `本周 ${alertSummary.value.week_total} 条`,
+          // ★ 这里写「近 7 天」而不是「本周」：后端取的是滚动 7×24 小时
+          //   （今天往前 6 天的 00:00 起），不是自然周一到周日。
+          //   写成「本周」会让周一早上看到上周的数据时误以为出 bug。
+          path: '/alertManage', extra: `近 7 天 ${alertSummary.value.week_total} 条`,
           target: activeAlerts.value, display: 0,
         },
         {
@@ -345,13 +350,15 @@ export default defineComponent({
           target: onlineSessions.value, display: 0,
         },
         {
-          // 这张卡的落点本来就是 /alertEvent ⇒ 名称改成「历史告警」，
-          // 数字也跟着换成「历史告警」的口径（近 7 天告警条数），
-          // 否则会出现「标题写历史告警、数字却是本周严重数」的名实不符。
-          // 完整的三级分布看下方「告警级别分布」图，这里只放最要紧的两级。
+          // ★ 主数字必须与落点同源：/alertEvent 的 queryset 是 AlertEvent.objects.all()
+          //   （无任何时间过滤），所以这里用 total_all（全部历史条数）。
+          //   曾用 week_total（近 7 天）⇒ 卡片写 30、点进去 200 条，
+          //   属于「卡片数字 ≠ 落点内容」的老毛病（和活跃告警那次同源）。
+          //   近 7 天的数量与分级放副标题，完整三级分布看下方「告警级别分布」图。
           label: '历史告警', icon: Promotion, color: '#e6a23c', bg: '#fdf6ec',
-          path: '/alertEvent', extra: `严重 ${alertSummary.value.critical} · 警告 ${alertSummary.value.warning}`,
-          target: alertSummary.value.week_total, display: 0,
+          path: '/alertEvent',
+          extra: `近 7 天 ${alertSummary.value.week_total} · 严重 ${alertSummary.value.critical} · 警告 ${alertSummary.value.warning}`,
+          target: alertSummary.value.total_all, display: 0,
         },
         {
           label: '下发任务(今日)', icon: Position, color: '#7b61ff', bg: '#f1edff',
@@ -458,7 +465,7 @@ export default defineComponent({
             left: 'center',
             top: '52%',
             style: {
-              text: '本周告警',
+              text: '近 7 天告警',
               fill: '#909399',
               fontSize: 12,
               textAlign: 'center',

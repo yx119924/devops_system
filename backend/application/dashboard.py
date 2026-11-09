@@ -109,8 +109,13 @@ def dashboard_stats(request):
     online_rate = round(server_online * 100.0 / server_total, 1) if server_total else 0.0
 
     # 2. 告警统计（活跃 + 近 7 天级别分布）——告警是"事件流"，有菜单即看全量
-    start = now - timedelta(days=7)
+    # ★ 窗口口径必须与「最近 7 天告警趋势」的自然日分桶对齐：
+    #   取「今天往前 6 天」的 00:00 起，共 7 个自然日。
+    #   原写法 now-7d（精确到秒）会多算 7 天前那半天 —— 趋势图第一根柱子是
+    #   (今天-6天) 00:00，两边差 0~24 小时，导致「总数」大于「趋势各点之和」。
+    start = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
     alert_source = "db"          # am=实时问 Alertmanager；db=降级为库值；none=无权限
+    total_all = 0
     if vis["alerts"]:
         # ★ 活跃告警必须与「活跃告警」页面**同源**（10-14 定性、11-06 复发）
         #   原先这里数库里的 AlertEvent.status='firing'，那只是「事件流快照」：
@@ -119,6 +124,10 @@ def dashboard_stats(request):
         #   （库里残留时首页偏大，AM 有新增而落库断链时首页偏小）。
         #   现在改为直接问 AM；AM 不可达才降级回库值，并如实标记 source=db。
         active_alerts, alert_source = _active_alert_count()
+        # ★ 全部历史条数：给「历史告警」卡用。
+        #   那张卡点进 /alertEvent，而该页 queryset 是 AlertEvent.objects.all()（无时间过滤），
+        #   所以卡片主数字必须用「全部」而不是「近 7 天」，否则又是「卡片 30、点进去 200」。
+        total_all = AlertEvent.objects.count()
         week_events = AlertEvent.objects.filter(starts_at__gte=start)
         week_total = week_events.count()
         critical_count = week_events.filter(severity="critical").count()
@@ -235,6 +244,8 @@ def dashboard_stats(request):
             # 口径来源：am=实时问 Alertmanager（与告警页一致）；db=AM 不可达的降级值；
             # none=当前用户看不到告警菜单。前端可据此决定要不要提示「数据源降级」。
             "source": alert_source,
+            # 全部历史条数（与 /alertEvent 页面同口径，无时间过滤）
+            "total_all": total_all,
             "week_total": week_total,
             "critical": critical_count,
             "warning": warning_count,
