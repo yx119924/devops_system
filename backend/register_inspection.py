@@ -233,16 +233,9 @@ def main():
         print("[警告] 库里一个角色都没有，菜单/按钮没授出去 → 需到「角色管理」手工勾选")
         return
 
-    # 菜单：给所有角色（巡检报告是只读视图，不涉及数据变更）
-    m_cnt = 0
-    for menu in menu_map.values():
-        for r in all_roles:
-            _, c = RoleMenuPermission.objects.get_or_create(role=r, menu=menu)
-            m_cnt += 1 if c else 0
-    print("[ok] 菜单授权：%d 个角色 × %d 个菜单 → 新增 %d 条"
-          % (len(all_roles), len(menu_map), m_cnt))
-
-    # 决定哪些角色拿「全部按钮」（查询 + 两个导出）
+    # ★ 先决定「谁能用」，再一致地授菜单与按钮。
+    #   反过来的话会出现「菜单看得见、点进去每个请求都 4000」的半残状态 ——
+    #   菜单授给全部角色、按钮只授给部分角色，就是这个后果。
     if TARGET_ROLES:
         grant_roles = []
         for token in TARGET_ROLES:
@@ -264,6 +257,19 @@ def main():
             print("[警告] 没识别到管理员/ops 角色 → 兜底把所有按钮授给全部角色（请自行复核）")
             grant_roles = all_roles
 
+    # 菜单：授给 grant_roles + 只读角色（只读角色只能看，不能改，但要能打开页面）
+    view_roles = list(grant_roles)
+    if readonly_role and readonly_role not in view_roles:
+        view_roles.append(readonly_role)
+
+    m_cnt = 0
+    for menu in menu_map.values():
+        for r in view_roles:
+            _, c = RoleMenuPermission.objects.get_or_create(role=r, menu=menu)
+            m_cnt += 1 if c else 0
+    print("[ok] 菜单授权：%s × %d 个菜单 → 新增 %d 条"
+          % ("、".join(r.name for r in view_roles), len(menu_map), m_cnt))
+
     cnt_full = 0
     for r in grant_roles:
         for b in btn_by_code.values():
@@ -274,7 +280,7 @@ def main():
           % ("、".join(r.name for r in grant_roles), cnt_full))
 
     cnt_ro = 0
-    if readonly_role:
+    if readonly_role and readonly_role not in grant_roles:
         for b in btn_by_code.values():
             if b.method != GET:
                 continue
