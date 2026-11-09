@@ -218,8 +218,26 @@ def main():
         if menu is None:
             print("[skip] 按钮 %s：菜单 %s 不存在" % (value, comp))
             continue
-        obj, created = MenuButton.objects.update_or_create(
-            menu=menu, value=value, defaults={"name": bname, "api": api, "method": method})
+        # ★★ MenuButton.value 在表上是**全局唯一**（dvadmin_system_menu_button.value），
+        #    而 update_or_create(menu=..., value=...) 会把 menu 一起算进查询条件：
+        #    按钮一旦换菜单（如 inspection:Weekly 从日报挪到周报），就查不到旧记录 ⇒
+        #    走新建 ⇒ 撞唯一键报 1062 Duplicate entry。
+        #    所以必须先按 value 查，命中就把它的 menu 改过来（搬菜单），而不是按 (menu,value) 查。
+        obj = MenuButton.objects.filter(value=value).first()
+        if obj is None:
+            obj = MenuButton.objects.create(
+                menu=menu, value=value, name=bname, api=api, method=method)
+            created = True
+        else:
+            created = False
+            moved = obj.menu_id != menu.id
+            obj.menu = menu
+            obj.name = bname
+            obj.api = api
+            obj.method = method
+            obj.save()
+            if moved:
+                print("     ↳ 已从其它菜单迁移：%s → %s" % (value, menu.name))
         btn_by_code[value] = obj
         print("[ok] 按钮 %s（%s）" % (value, "新建" if created else "更新"))
 
