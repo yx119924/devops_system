@@ -44,4 +44,11 @@ class OperationLogViewSet(CustomModelViewSet):
     """
     queryset = OperationLog.objects.order_by('-create_datetime')
     serializer_class = OperationLogSerializer
+    # ★ 2026-11-09 补：前端搜索框的列 key 是 `search`，发的是 `?search=关键字`，
+    #   由 DRF 的 `SearchFilter` 处理 —— 它**必须有 `search_fields` 才动**，
+    #   否则原样返回全量（「点查询没反应」的真正原因）。
+    #   ★ 不收录 `request_body` / `json_result`：都是 TextField，内容可能很大，
+    #     拼进 OR 查询会明显拖慢列表；也不收录 `status`（布尔，icontains 语义错误）。
+    search_fields = ['request_modular', 'request_path', 'request_method',
+                     'request_msg', 'request_ip', 'request_browser', 'response_code']
     # permission_classes = []
