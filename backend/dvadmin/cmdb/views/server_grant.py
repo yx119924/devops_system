@@ -107,8 +107,7 @@ class ServerGrantViewSet(CustomModelViewSet):
     search_fields = ['server__hostname', 'server__ip', 'role__name', 'user__username', 'user__name']
     filter_fields = ['server', 'role', 'user', 'level']
     permission_classes = [AssetAdminPermission]
-    extra_filter_class = []
-
+    disable_dept_scope = True
     @staticmethod
     def _to_int(value, label, idx):
         try:

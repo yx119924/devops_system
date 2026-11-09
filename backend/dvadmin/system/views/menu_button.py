@@ -56,8 +56,7 @@ class MenuButtonViewSet(CustomModelViewSet):
     serializer_class = MenuButtonSerializer
     create_serializer_class = MenuButtonCreateUpdateSerializer
     update_serializer_class = MenuButtonCreateUpdateSerializer
-    extra_filter_class = []
-
+    disable_dept_scope = True
     def list(self, request, *args, **kwargs):
         """
         重写list方法

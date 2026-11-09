@@ -49,12 +49,29 @@ class CustomModelViewSet(ModelViewSet, ImportSerializerMixin, ExportSerializerMi
     #   补丁，其余 20 个页面的搜索框要么返回全量、要么只能精确匹配。
     #   详见 dvadmin/utils/search_filter.py 与 deploy/全站搜索失效-排查报告_20261014.md
     extra_filter_class = [CoreModelFilterBankend, SearchLikeBackend, DataLevelPermissionMargeFilter]
+    # ★★ 只想关「部门数据权限」时，把这里置 True（2026-11-09 踩过）。
+    #
+    #   反面写法：`extra_filter_class = []`。它看起来只是「不要部门权限」，
+    #   实际把整个扩展链清空了 —— 连 SearchLikeBackend 一起没了，于是：
+    #     · 所有搜索框输入关键字、点查询 ⇒ **返回全量**
+    #     · 时间范围过滤（create_datetime_after/before）同样失效
+    #     · 不报错、控制台无痕迹、接口 200
+    #   全仓曾有 13 个 ViewSet 这么写，其中 7 个页面有 search_fields ⇒ 搜索全废。
+    #   本开关的存在意义：让「关部门权限」和「关搜索」在代码上**不可能被混为一谈**。
+    #
+    #   为什么保留 CoreModelFilterBankend：它只在请求里带了 create_datetime_after /
+    #   create_datetime_before 等参数时才过滤，不带就原样返回，留着无害且有用。
+    disable_dept_scope = False
     permission_classes = [CustomPermission]
     import_field_dict = {}
     export_field_label = {}
 
     def filter_queryset(self, queryset):
-        for backend in set(set(self.filter_backends) | set(self.extra_filter_class or [])):
+        extra = list(self.extra_filter_class or [])
+        if self.disable_dept_scope:
+            # 按**类对象**比较，不按名字 —— 子类换了同名类也不会被误删/漏删
+            extra = [b for b in extra if b is not DataLevelPermissionMargeFilter]
+        for backend in set(set(self.filter_backends) | set(extra)):
             queryset = backend().filter_queryset(self.request, queryset, self)
         return queryset
 

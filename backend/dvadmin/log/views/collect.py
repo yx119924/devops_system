@@ -281,8 +281,10 @@ class LogCollectTaskViewSet(CustomModelViewSet):
     #   它对「没有 dept_id 的用户」会 `none()`，把用户**自己建的**任务也一并掏空
     #   —— 表现是"页面空白"，而库里数据完好，极难排查。
     #   同款先例：`cmdb/views/server_grant.py`、`aiagent/views.py`。
-    extra_filter_class = []
-
+    #   ★ 用 `disable_dept_scope = True` 而不是 `extra_filter_class = []`（2026-11-09）：
+    #     后者会把 `SearchLikeBackend` 一起关掉 ⇒ 本页「任务名称/日志路径/索引前缀」
+    #     三个搜索框全部返回全量。只摘部门权限即可，时间和关键字过滤都要留着。
+    disable_dept_scope = True
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user

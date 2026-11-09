@@ -66,7 +66,7 @@ class DictionaryViewSet(CustomModelViewSet):
     queryset = Dictionary.objects.all()
     serializer_class = DictionarySerializer
     create_serializer_class = DictionaryCreateUpdateSerializer
-    extra_filter_class = []
+    disable_dept_scope = True
     search_fields = ['label']
 
     def get_queryset(self):

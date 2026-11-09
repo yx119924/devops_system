@@ -164,19 +164,23 @@ class AiProviderViewSet(CustomModelViewSet):
         · 没有分配部门的用户 → `queryset.none()` → **永远看到空列表**
         · 同部门的两个人 → 若角色 data_range 是 1/2/4，会**互相看到对方的配置**
       两条都不是我们想要的。个人配置不是"部门数据"，所以直接关掉，
-      改用 `owner=当前用户`。先例：`dvadmin/cmdb/views/server_grant.py` 同样 `extra_filter_class = []`。
+      改用 `owner=当前用户`。先例：`dvadmin/cmdb/views/server_grant.py` 同样 `disable_dept_scope = True`。
 
     ★ 关掉它不影响接口权限：`permission_classes = [CustomPermission]` 仍在，
-      未授权调用依然返回业务码 4000。失去的只是时间范围查询参数，本接口用不到。
+      未授权调用依然返回业务码 4000。
+
+    ★★ 只摘「部门数据权限」这一条，**不要**写 `extra_filter_class = []`（2026-11-09 踩过）：
+      那会连 `SearchLikeBackend`（文本搜索）和 `CoreModelFilterBankend`（时间范围）
+      一起关掉 ⇒ 本类的 `search_fields` 全部失效，搜索框输入关键字后返回全量，
+      而且不报错、接口 200、控制台无痕迹。用 `disable_dept_scope = True`。
     """
 
     queryset = AiProviderConfig.objects.all()
     serializer_class = AiProviderSerializer
     search_fields = ['name', 'model', 'base_url', 'description']
     filter_fields = ['enabled', 'provider_type', 'is_default']
-    # 「先例」见类 docstring。空列表 = 不挂 CoreModelFilterBankend / DataLevelPermissionMargeFilter
-    extra_filter_class = []
-
+    # 「先例」见类 docstring。只摘掉部门权限过滤，保留时间范围与文本搜索。
+    disable_dept_scope = True
     def get_queryset(self):
         """只返回当前登录用户自己的配置。
 
@@ -330,7 +334,7 @@ class AiChatSessionListSerializer(CustomModelSerializer):
 class AiChatSessionViewSet(CustomModelViewSet):
     """智能问答会话（**个人私有**）。
 
-    ★ 与「模型配置」同一套隔离原则：`extra_filter_class = []` 关掉 DVAdmin 的部门数据权限，
+    ★ 与「模型配置」同一套隔离原则：`disable_dept_scope = True` 关掉 DVAdmin 的部门数据权限，
       改用 `owner=当前用户`（理由见 AiProviderViewSet 的类 docstring）。
       会话里含提问原文、命令输出、主机名 —— 比模型配置更不该跨人可见。
 
@@ -341,7 +345,7 @@ class AiChatSessionViewSet(CustomModelViewSet):
     list_serializer_class = AiChatSessionListSerializer
     search_fields = ['title']
     filter_fields = ['status']
-    extra_filter_class = []
+    disable_dept_scope = True
     http_method_names = ['get', 'post', 'delete', 'head', 'options']
 
     def get_queryset(self):
@@ -511,7 +515,7 @@ class AiToolCallViewSet(CustomModelViewSet):
     serializer_class = AiToolCallSerializer
     search_fields = ['tool_name', 'command', 'purpose', 'server_label', 'ip', 'reject_reason']
     filter_fields = ['session', 'status', 'tool_name']
-    extra_filter_class = []
+    disable_dept_scope = True
     http_method_names = ['get', 'head', 'options']
 
     def get_queryset(self):

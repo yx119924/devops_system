@@ -57,8 +57,7 @@ class RoleMenuPermissionViewSet(CustomModelViewSet):
     serializer_class = RoleMenuPermissionSerializer
     create_serializer_class = RoleMenuPermissionCreateUpdateSerializer
     update_serializer_class = RoleMenuPermissionCreateUpdateSerializer
-    extra_filter_class = []
-
+    disable_dept_scope = True
     @action(methods=['post'],detail=False)
     def save_auth(self,request):
         """

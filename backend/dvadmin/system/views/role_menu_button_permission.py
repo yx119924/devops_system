@@ -156,8 +156,7 @@ class RoleMenuButtonPermissionViewSet(CustomModelViewSet):
     serializer_class = RoleMenuButtonPermissionSerializer
     create_serializer_class = RoleMenuButtonPermissionCreateUpdateSerializer
     update_serializer_class = RoleMenuButtonPermissionCreateUpdateSerializer
-    extra_filter_class = []
-
+    disable_dept_scope = True
     @action(methods=['GET'], detail=False, permission_classes=[IsAuthenticated])
     def get_role_menu(self, request):
         """

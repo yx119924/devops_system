@@ -99,6 +99,8 @@ class DeptViewSet(CustomModelViewSet):
     update_serializer_class = DeptCreateUpdateSerializer
     filter_fields = ['name', 'id', 'parent']
     search_fields = []
+    # ⚠️ 不要取消下面这行的注释：`extra_filter_class = []` 会连文本搜索一起关掉。
+    #    确实需要关「部门数据权限」时，写 `disable_dept_scope = True`（2026-11-09）。
     # extra_filter_class = []
     import_serializer_class = DeptImportSerializer
     import_field_dict = {

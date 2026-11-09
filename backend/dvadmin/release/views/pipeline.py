@@ -366,8 +366,7 @@ class PipelineViewSet(CustomModelViewSet):
     #   `DataLevelPermissionMargeFilter`：它对「没有 dept_id 的用户」会 `none()`，
     #   把用户**自己建的**流水线也一并掏空（表现是"页面空白"，库里数据完好）。
     #   同款先例：`cmdb/views/server_grant.py`、`aiagent/views.py`、`log/views/collect.py`。
-    extra_filter_class = []
-
+    disable_dept_scope = True
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
@@ -655,8 +654,7 @@ class PipelineRunViewSet(CustomModelViewSet):
     search_fields = ['pipeline_name']
     filter_fields = ['status', 'trigger_type', 'pipeline']
     http_method_names = ['get', 'post', 'head', 'options']
-    extra_filter_class = []
-
+    disable_dept_scope = True
     def get_queryset(self):
         qs = super().get_queryset()
         if self.action == 'retrieve':

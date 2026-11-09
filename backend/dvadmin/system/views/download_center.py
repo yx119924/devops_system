@@ -45,8 +45,7 @@ class DownloadCenterViewSet(CustomModelViewSet):
     serializer_class = DownloadCenterSerializer
     filter_class = DownloadCenterFilterSet
     permission_classes = []
-    extra_filter_class = []
-
+    disable_dept_scope = True
     def get_queryset(self):
         # 判断是否是 Swagger 文档生成阶段，防止报错
         if getattr(self, 'swagger_fake_view', False):

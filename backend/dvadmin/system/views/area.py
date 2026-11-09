@@ -72,8 +72,7 @@ class AreaViewSet(CustomModelViewSet, FieldPermissionMixin):
     serializer_class = AreaSerializer
     create_serializer_class = AreaCreateUpdateSerializer
     update_serializer_class = AreaCreateUpdateSerializer
-    extra_filter_class = []
-
+    disable_dept_scope = True
     def list(self, request, *args, **kwargs):
         self.request.query_params._mutable = True
         params = self.request.query_params
