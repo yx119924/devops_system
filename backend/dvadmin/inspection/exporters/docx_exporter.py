@@ -13,13 +13,28 @@
      顺序错了 Word 会弹「文件内容有问题」，而 python-docx 读取时不校验。
 """
 
-from docx import Document
-from docx.enum.section import WD_SECTION
-from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
-from docx.shared import Cm, Pt, RGBColor
+# ★★ 依赖缺失绝不能拖垮全站（2026-11-09 真机事故）
+#   urls.py → views.py → 本模块，是 Django 启动时必经的 import 链。
+#   原来这里直接 `from docx import ...`，而 python-docx 是后加的依赖：
+#   镜像没重建 ⇒ ImportError ⇒ uvicorn 进程直接退出 ⇒ nginx 全站 502，
+#   连登录页都打不开。一个「导出 Word」的可选能力，不该有掀翻整站的权力。
+#   所以这里降级为软依赖，只有真正调 render() 时才报错。
+try:
+    from docx import Document
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Cm, Pt, RGBColor
+
+    DOCX_AVAILABLE = True
+    DOCX_IMPORT_ERROR = ""
+except ImportError as _exc:                                  # noqa: BLE001
+    DOCX_AVAILABLE = False
+    DOCX_IMPORT_ERROR = str(_exc)
+    Document = None                                          # type: ignore
+    WD_TABLE_ALIGNMENT = WD_ALIGN_PARAGRAPH = None            # type: ignore
+    OxmlElement = qn = Cm = Pt = RGBColor = None              # type: ignore
 
 # ---------------------------------------------------------------- 配色与字体
 CN_FONT = "微软雅黑"
@@ -203,10 +218,13 @@ def _table_borders(table, color=C_BORDER, size=4):
     _insert_ordered(tblPr, borders, TBLPR_ORDER)
 
 
-def _write_cell(cell, text, size=9.5, bold=False, color=C_TEXT, align=WD_ALIGN_PARAGRAPH.LEFT):
+def _write_cell(cell, text, size=9.5, bold=False, color=C_TEXT, align=None):
     cell.text = ""
     p = cell.paragraphs[0]
-    p.alignment = align
+    # ★ 默认值绝不能写成 WD_ALIGN_PARAGRAPH.LEFT：Python 的默认参数在 def 定义时
+    #   就求值，依赖缺失时它已是 None，会在「模块导入」阶段抛 AttributeError，
+    #   照样能把 Django 启动链炸断 —— 降级保护等于白做。
+    p.alignment = align if align is not None else WD_ALIGN_PARAGRAPH.LEFT
     pf = p.paragraph_format
     pf.space_before = Pt(1)
     pf.space_after = Pt(1)
@@ -299,6 +317,12 @@ def _footer_page_number(section):
 
 # ---------------------------------------------------------------- 主渲染
 def render(data, out_path):
+    if not DOCX_AVAILABLE:
+        raise RuntimeError(
+            "服务端缺少 python-docx 依赖（%s）。请在服务器执行："
+            "docker compose build dvadmin3-django && docker compose up -d dvadmin3-django "
+            "重建镜像后再导出 Word；在此之前页面查询与 Excel 导出不受影响。"
+            % DOCX_IMPORT_ERROR)
     d = data
     sev = d.get("severity_counts") or {}
     doc = Document()

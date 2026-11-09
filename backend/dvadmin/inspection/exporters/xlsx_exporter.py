@@ -8,11 +8,21 @@
      严重项标红、未恢复项标黄
 """
 import datetime as dt
-import os
 
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
+# ★ 与 docx_exporter 同理：可选依赖缺失只让该功能不可用，不能拖垮整个 Django 启动。
+try:
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    XLSX_AVAILABLE = True
+    XLSX_IMPORT_ERROR = ""
+except ImportError as _exc:                                  # noqa: BLE001
+    XLSX_AVAILABLE = False
+    XLSX_IMPORT_ERROR = str(_exc)
+    Workbook = None                                          # type: ignore
+    Alignment = Border = Font = PatternFill = Side = None    # type: ignore
+    get_column_letter = None                                 # type: ignore
 
 C_TITLE = "1F3864"
 C_HEAD = "2E75B6"
@@ -21,8 +31,12 @@ C_BORDER = "C9D6E5"
 C_CRIT = "C00000"
 
 CN = "微软雅黑"
-THIN = Side(style="thin", color=C_BORDER)
-BOX = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+if XLSX_AVAILABLE:
+    THIN = Side(style="thin", color=C_BORDER)
+    BOX = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+else:
+    # 依赖缺失时不能在模块加载阶段构造 openpyxl 对象，否则一样炸在 import 上
+    THIN = BOX = None
 
 
 def _sheet_title(ws, text, ncols, sub=None):
@@ -87,6 +101,9 @@ def _build_details(d):
 
 
 def render(d, out_path):
+    if not XLSX_AVAILABLE:
+        raise RuntimeError(
+            "服务端缺少 openpyxl 依赖（%s）。请重建 django 镜像后再导出 Excel。" % XLSX_IMPORT_ERROR)
     sev = d.get("severity_counts") or {}
     wb = Workbook()
 

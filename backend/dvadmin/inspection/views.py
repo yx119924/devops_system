@@ -109,9 +109,10 @@ def export_word(request):
         return _attachment(
             buf.getvalue(), name,
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-    except ImportError:
-        logger.exception("python-docx 未安装")
-        return ErrorResponse(msg="服务端缺少 python-docx 依赖，请先重建 django 镜像")
+    except RuntimeError as exc:
+        # 依赖缺失（python-docx 未安装）：给出可执行的修复指引，别吞成笼统的「导出失败」
+        logger.warning("导出 Word 不可用：%s", exc)
+        return ErrorResponse(msg=str(exc))
     except Exception as exc:                                    # noqa: BLE001
         logger.exception("导出 Word 失败")
         return ErrorResponse(msg="导出 Word 失败：%s" % exc)
