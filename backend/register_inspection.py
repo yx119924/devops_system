@@ -80,17 +80,17 @@ BUTTONS = [
      "/api/inspection/export/weekly/excel/", GET),
 ]
 
-# 只读角色额外给「导出周报」——和日报口径一致：导出属于只读操作
-READONLY_WEEKLY = {"inspection:ExportWeeklyWord", "inspection:ExportWeeklyExcel"}
-
-# 只读角色可以拿到的全部按钮（都是 GET，不改数据）
-READONLY_ALLOW = (READONLY_EXTRA | READONLY_WEEKLY
-                  | {"inspection:View", "inspection:Weekly"})
-
 ADMIN_ROLE_HINTS = ("超级管理员", "管理员", "运维")
 
 # 只读角色也能用的按钮（导出属于只读操作，报告是要给人看的）
 READONLY_EXTRA = {"inspection:ExportWord", "inspection:ExportExcel"}
+READONLY_WEEKLY = {"inspection:ExportWeeklyWord", "inspection:ExportWeeklyExcel"}
+
+# 只读角色可以拿到的全部按钮（都是 GET，不改数据）
+# ★ 必须在 READONLY_EXTRA / READONLY_WEEKLY 都定义之后才能求值 ——
+#   放前面会在模块导入阶段直接 NameError，脚本连 --dry-run 都跑不起来。
+READONLY_ALLOW = (READONLY_EXTRA | READONLY_WEEKLY
+                  | {"inspection:View", "inspection:Weekly"})
 
 
 def _parse_roles(argv):
