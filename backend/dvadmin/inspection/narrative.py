@@ -146,3 +146,104 @@ def build_suggestions(d):
     return out
 
 
+# ---------------------------------------------------------------- 周报
+# 周报不复活日报的句子：日报说「当日」「较前一日」，周报必须说「本周」「较上周」。
+# 直接复用会让领导看到「当日累计产生告警 37 条」出现在一份周报里。
+
+def build_weekly_findings(d):
+    """周报结论。每条带数字，措辞按「周」。"""
+    total = d["total"]
+    prev = d["prev_total"]
+    sev = d.get("severity_counts") or {}
+    out = []
+    period = "%s 至 %s" % (d["start"][5:], d["end"][5:])
+
+    if prev > 0:
+        delta = (total - prev) * 100.0 / prev
+        word = "下降" if delta < 0 else "上升"
+        if abs(delta) < 0.1:
+            out.append("%s 共产生告警 %d 条，与上周（%d 条）基本持平，日均 %.1f 条。"
+                       % (period, total, prev, d["avg_per_day"]))
+        else:
+            out.append("%s 共产生告警 %d 条，较上周（%d 条）%s %.1f%%，日均 %.1f 条。"
+                       % (period, total, prev, word, abs(delta), d["avg_per_day"]))
+    else:
+        out.append("%s 共产生告警 %d 条，日均 %.1f 条（上周无告警记录，无可比基数）。"
+                   % (period, total, d["avg_per_day"]))
+
+    if total:
+        out.append("其中严重 %d 条、警告 %d 条、提示 %d 条，严重占比 %.1f%%。"
+                   % (sev.get("critical", 0), sev.get("warning", 0), sev.get("info", 0),
+                      sev.get("critical", 0) * 100.0 / total))
+
+    cats = d.get("categories") or []
+    if cats and total:
+        top = cats[0]
+        if top["ratio"] >= 30:
+            out.append("从告警类别看，「%s」类 %d 条，占全周 %.1f%%，是最主要的问题来源。"
+                       % (top["name"], top["count"], top["ratio"]))
+        else:
+            spread = "、".join("%s %d 条" % (c["name"], c["count"]) for c in cats[:3])
+            out.append("告警分散在 %d 个类别，前三类为 %s。" % (len(cats), spread))
+
+    types = d.get("types") or []
+    if types and total:
+        top3 = types[:3]
+        s3 = sum(t["count"] for t in top3)
+        desc = "、".join("%s（%d 条）" % (t["alertname"], t["count"]) for t in top3)
+        out.append("规则层面触发最多的是 %s，三者合计 %d 条，占全周 %.1f%%。"
+                   % (desc, s3, s3 * 100.0 / total))
+
+    peak = d.get("peak_day") or {}
+    if peak.get("total") and total:
+        out.append("单日峰值出现在 %s（%s），该日 %d 条，占全周 %.1f%%。"
+                   % (peak["date"], peak.get("weekday", ""), peak["total"],
+                      peak["total"] * 100.0 / total))
+
+    nodes = d.get("nodes") or []
+    if nodes and total:
+        top = nodes[0]
+        out.append("全周涉及 %d 个告警来源，其中 %s 累计 %d 条（占 %.1f%%），最为集中。"
+                   % (len(nodes), top["instance"], top["count"], top["ratio"]))
+    return out
+
+
+def build_weekly_suggestions(d):
+    """周报建议。阈值与日报一致，但看的是「全周占比」和「环比」。"""
+    total = d["total"]
+    sev = d.get("severity_counts") or {}
+    prev = d["prev_total"]
+    out = []
+
+    if sev.get("critical", 0) > 0:
+        out.append("全周出现 %d 条严重级告警，建议逐条回看处置记录，确认根因已消除而非仅恢复。"
+                   % sev["critical"])
+
+    if prev and total:
+        delta = (total - prev) * 100.0 / prev
+        if delta >= 30:
+            out.append("告警总量较上周上升 %.1f%%，建议排查是否有新增变更、批量发布"
+                       "或采集规则调整导致告警面扩大。" % delta)
+
+    cats = d.get("categories") or []
+    if cats and total and cats[0]["ratio"] >= 50:
+        c = cats[0]
+        out.append("「%s」类占全周 %.1f%%（%d/%d），已构成系统性问题，"
+                   "建议沿该类别的探测链路整体治理，而非逐条处理单点告警。"
+                   % (c["name"], c["ratio"], c["count"], total))
+
+    peak = d.get("peak_day") or {}
+    if peak.get("total") and total and peak["total"] * 100.0 / total >= 30:
+        out.append("%s 单日告警占全周 %.1f%%，建议核对该日是否有发布、变更或批量任务，"
+                   "并复盘该时段的告警处置时效。"
+                   % (peak["date"], peak["total"] * 100.0 / total))
+
+    for n in (d.get("nodes") or [])[:2]:
+        if n.get("ratio", 0) >= 25:
+            out.append("节点 %s 全周累计 %d 条（占 %.1f%%），建议对该机做一次资源与日志专项排查。"
+                       % (n["instance"], n["count"], n["ratio"]))
+
+    if not out:
+        out.append("本周无严重告警、无异常集中，告警总量处于正常区间，"
+                   "建议保持现有巡检与处置节奏。")
+    return out

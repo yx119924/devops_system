@@ -6,7 +6,7 @@
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from urllib.parse import quote
 
@@ -15,7 +15,7 @@ from rest_framework.decorators import api_view
 
 from dvadmin.utils.json_response import DetailResponse, ErrorResponse
 
-from .exporters import docx_exporter, xlsx_exporter
+from .exporters import docx_exporter, docx_weekly, xlsx_exporter, xlsx_weekly
 from .services import collect_range, collect_daily
 
 logger = logging.getLogger(__name__)
@@ -66,32 +66,92 @@ def daily_report(request):
     return DetailResponse(data=data)
 
 
+def _weekly_range(request):
+    """解析周期参数 → (start, end, err)。
+
+    自然周口径（周一 00:00 — 周日 23:59）：
+      · 不传 week  → 默认「上一个完整周」（今天所在周的周一往前推 7 天）
+      · 传任意日期 → 自动对齐到该日期所在周的周一
+    页面查询和两个导出接口共用这一份，避免三处各写一遍导致边界不一致。
+    """
+    raw = request.GET.get("week") or request.GET.get("start")
+    if raw:
+        anchor, err = _parse_day(raw, "week")
+        if err:
+            return None, None, err
+    else:
+        today = date.today()
+        anchor = today - timedelta(days=today.weekday() + 7)
+
+    start = anchor - timedelta(days=anchor.weekday())      # 对齐到周一
+    end = start + timedelta(days=6)                        # 周日
+
+    today = date.today()
+    if start > today:
+        return None, None, "不能查询未来的周（%s 起）" % start.isoformat()
+    if end > today:
+        end = today                                        # 本周还没过完，截到今天
+    return start, end, None
+
+
 @api_view(["GET"])
 def weekly_report(request):
-    """GET /inspection/weekly/?start=2026-11-03 —— 周报数据（按日聚合后合并）"""
-    start, err = _parse_day(request.GET.get("start"))
+    """GET /inspection/weekly/?week=2026-11-03 —— 周报数据（页面用）"""
+    start, end, err = _weekly_range(request)
     if err:
         return ErrorResponse(msg=err)
-    end_raw = request.GET.get("end")
-    if end_raw:
-        end, err2 = _parse_day(end_raw, "end")
-        if err2:
-            return ErrorResponse(msg=err2)
-    else:
-        from datetime import timedelta
-        end = start + timedelta(days=6)
-        if end > date.today():
-            end = date.today()
-    if end < start:
-        return ErrorResponse(msg="结束日期不能早于开始日期")
-    if (end - start).days > 92:
-        return ErrorResponse(msg="单次最多汇总 92 天，请缩小范围")
     try:
         data = collect_range(start, end)
     except Exception as exc:                                    # noqa: BLE001
         logger.exception("生成巡检周报失败")
         return ErrorResponse(msg="生成巡检周报失败：%s" % exc)
     return DetailResponse(data=data)
+
+
+@api_view(["GET"])
+def export_weekly_word(request):
+    """GET /inspection/export/weekly/word/?week=2026-11-03 —— 下载周报 Word"""
+    start, end, err = _weekly_range(request)
+    if err:
+        return ErrorResponse(msg=err)
+    try:
+        data = collect_range(start, end)
+        buf = BytesIO()
+        docx_weekly.render(data, buf)
+        buf.seek(0)
+        name = "巡检周报_%s至%s.docx" % (data["start"], data["end"][5:])
+        return _attachment(
+            buf.getvalue(), name,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    except RuntimeError as exc:
+        logger.warning("导出周报 Word 不可用：%s", exc)
+        return ErrorResponse(msg=str(exc))
+    except Exception as exc:                                    # noqa: BLE001
+        logger.exception("导出周报 Word 失败")
+        return ErrorResponse(msg="导出周报 Word 失败：%s" % exc)
+
+
+@api_view(["GET"])
+def export_weekly_excel(request):
+    """GET /inspection/export/weekly/excel/?week=2026-11-03 —— 下载周报 Excel"""
+    start, end, err = _weekly_range(request)
+    if err:
+        return ErrorResponse(msg=err)
+    try:
+        data = collect_range(start, end)
+        buf = BytesIO()
+        xlsx_weekly.render(data, buf)
+        buf.seek(0)
+        name = "巡检周报附表_%s至%s.xlsx" % (data["start"], data["end"][5:])
+        return _attachment(
+            buf.getvalue(), name,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    except RuntimeError as exc:
+        logger.warning("导出周报 Excel 不可用：%s", exc)
+        return ErrorResponse(msg=str(exc))
+    except Exception as exc:                                    # noqa: BLE001
+        logger.exception("导出周报 Excel 失败")
+        return ErrorResponse(msg="导出周报 Excel 失败：%s" % exc)
 
 
 @api_view(["GET"])

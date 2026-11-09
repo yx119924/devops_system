@@ -329,3 +329,91 @@ def build_scope_from_prom(targets, rules_total, down_today=0, url=""):
         "source_desc": ("Prometheus（%s）指标 + 平台告警事件库 alert_event" % url) if url
                        else "平台告警事件库 alert_event",
     }
+
+
+# ---------------------------------------------------------------- 周期汇总（周报/月报）
+def merge_reports(reports, start_day, end_day, prev_total=0, scope=None):
+    """把 N 天的日报结果合并成一个周期报告。
+
+    ★ 独立成纯函数是为了能离线断言：它不碰 ORM，输入就是 build_report() 的输出列表。
+      否则周报的聚合逻辑只能等上线才能验，出问题只能靠人肉核对数字。
+
+    ★ 不是「N 份日报简单相加」：
+      日报里同一条告警只出现在触发当天，所以按天累加不会重复计；
+      但如果拿「日报的类型 TOP 列表」直接合并去重，就会丢掉跨天重复的次数。
+
+    口径：总次数 = 各天次数之和；类别/类型/节点占比 = 该维度次数 / 周期总次数。
+    """
+    from collections import Counter
+
+    reports = list(reports or [])
+    span = (end_day - start_day).days + 1
+    total = sum(r["total"] for r in reports)
+
+    sev = {"critical": 0, "warning": 0, "info": 0}
+    cat_cnt, type_cnt, type_cat = Counter(), Counter(), {}
+    node_cnt, node_host = Counter(), {}
+    hourly = [0] * 24
+    daily = []
+
+    for r in reports:
+        sc = r.get("severity_counts") or {}
+        for k in sev:
+            sev[k] += sc.get(k, 0)
+        for c in r.get("categories") or []:
+            cat_cnt[c["name"]] += c["count"]
+        for t in r.get("types") or []:
+            type_cnt[t["alertname"]] += t["count"]
+            type_cat[t["alertname"]] = t.get("category", "其他")
+        for h in r.get("hourly") or []:
+            hourly[h["hour"]] += h["count"]
+        for n in r.get("nodes") or []:
+            node_cnt[n["instance"]] += n["count"]
+            if n.get("hostname"):
+                node_host[n["instance"]] = n["hostname"]
+        daily.append({
+            "date": r["date"],
+            "weekday": r.get("weekday", ""),
+            "total": r["total"],
+            "critical": sc.get("critical", 0),
+            "warning": sc.get("warning", 0),
+            "info": sc.get("info", 0),
+            "categories": r.get("categories") or [],
+        })
+
+    peak = max(daily, key=lambda x: x["total"]) if daily else {"date": "", "total": 0}
+    iso = start_day.isocalendar()
+
+    result = {
+        "kind": "weekly",
+        "start": start_day.strftime("%Y-%m-%d"),
+        "end": end_day.strftime("%Y-%m-%d"),
+        "start_cn": "%d 年 %02d 月 %02d 日" % (start_day.year, start_day.month, start_day.day),
+        "end_cn": "%02d 月 %02d 日" % (end_day.month, end_day.day),
+        "week_label": "%d 年第 %d 周" % (iso[0], iso[1]),
+        "days": span,
+        "total": total,
+        "prev_total": prev_total,
+        "avg_per_day": round(total * 1.0 / span, 1) if span else 0.0,
+        "severity_counts": sev,
+        "daily": daily,
+        "peak_day": peak,
+        "categories": [{"name": k, "count": v,
+                        "ratio": round(v * 100.0 / total, 1) if total else 0.0}
+                       for k, v in cat_cnt.most_common()],
+        "types": [{"alertname": k, "count": v, "category": type_cat.get(k, "其他"),
+                   "ratio": round(v * 100.0 / total, 1) if total else 0.0}
+                  for k, v in type_cnt.most_common()],
+        "nodes": [{"instance": k, "hostname": node_host.get(k, ""), "count": v,
+                   "ratio": round(v * 100.0 / total, 1) if total else 0.0}
+                  for k, v in node_cnt.most_common()],
+        "hourly": [{"hour": i, "count": c} for i, c in enumerate(hourly)],
+        "caliber": "按告警触发时间（starts_at）落在区间内统计，一行代表一次告警生命周期；"
+                   "跨天告警只计入触发当天，不会在区间内重复累计。",
+        "source_desc": (scope or {}).get("source_desc") or "平台告警事件库 alert_event",
+    }
+
+    from .narrative import build_weekly_findings, build_weekly_suggestions
+    result["findings"] = build_weekly_findings(result)
+    result["suggestions"] = build_weekly_suggestions(result)
+    return result

@@ -48,6 +48,14 @@ CHILD_MENUS = [
         "icon": "ele-Tickets",
         "sort": 1,
     },
+    {
+        "name": "巡检周报",
+        "web_path": "/inspectionWeekly",
+        "component": "inspection/weekly/index",
+        "component_name": "inspectionWeekly",
+        "icon": "ele-Calendar",
+        "sort": 2,
+    },
 ]
 
 # HTTP method 常量（与 CustomPermission 的 methodList 索引一致）
@@ -63,9 +71,21 @@ BUTTONS = [
      "/api/inspection/export/word/", GET),
     ("inspectionDaily", "导出Excel附表", "inspection:ExportExcel",
      "/api/inspection/export/excel/", GET),
-    ("inspectionDaily", "查询周报", "inspection:Weekly",
+    # 周报接口归周报菜单，挂在日报下会导致「日报页有周报按钮权限」的错位
+    ("inspectionWeekly", "查询周报", "inspection:Weekly",
      "/api/inspection/weekly/", GET),
+    ("inspectionWeekly", "导出周报Word", "inspection:ExportWeeklyWord",
+     "/api/inspection/export/weekly/word/", GET),
+    ("inspectionWeekly", "导出周报Excel", "inspection:ExportWeeklyExcel",
+     "/api/inspection/export/weekly/excel/", GET),
 ]
+
+# 只读角色额外给「导出周报」——和日报口径一致：导出属于只读操作
+READONLY_WEEKLY = {"inspection:ExportWeeklyWord", "inspection:ExportWeeklyExcel"}
+
+# 只读角色可以拿到的全部按钮（都是 GET，不改数据）
+READONLY_ALLOW = (READONLY_EXTRA | READONLY_WEEKLY
+                  | {"inspection:View", "inspection:Weekly"})
 
 ADMIN_ROLE_HINTS = ("超级管理员", "管理员", "运维")
 
@@ -284,7 +304,7 @@ def main():
         for b in btn_by_code.values():
             if b.method != GET:
                 continue
-            if b.value not in READONLY_EXTRA and b.value != "inspection:View":
+            if b.value not in READONLY_ALLOW:
                 continue
             _, c = RoleMenuButtonPermission.objects.update_or_create(
                 role=readonly_role, menu_button=b, defaults={"data_range": 3})

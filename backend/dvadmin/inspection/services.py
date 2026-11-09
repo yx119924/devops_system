@@ -19,7 +19,7 @@ from dvadmin.alert.models import AlertEvent, AlertRule
 from dvadmin.cmdb.models import Server
 from dvadmin.monitor.models import PrometheusSource
 
-from .aggregate import build_report, build_scope_from_prom
+from .aggregate import build_report, build_scope_from_prom, merge_reports
 
 logger = logging.getLogger(__name__)
 
@@ -103,14 +103,18 @@ def fetch_scope():
             "平台告警事件库 alert_event（Prometheus 暂时不可达，覆盖信息未采集）")
 
 
-def collect_daily(day, now=None):
-    """一天的完整报告数据。前端展示与 Word/Excel 导出都走这里，保证同源。"""
+def collect_daily(day, now=None, host_map=None, scope=None):
+    """一天的完整报告数据。前端展示与 Word/Excel 导出都走这里，保证同源。
+
+    host_map / scope 允许外部传入以复用：周报要跑 7 天，不传就会把 CMDB 全表
+    和 Prometheus targets 各查 7 遍（scope 有 60s 缓存能挡一部分，CMDB 没有）。
+    """
     events = fetch_events(day)
     prev_events = fetch_events(day - timedelta(days=1))
     return build_report(
         day, events, prev_events,
-        scope=fetch_scope(),
-        host_map=fetch_host_map(),
+        scope=fetch_scope() if scope is None else scope,
+        host_map=fetch_host_map() if host_map is None else host_map,
         now=now or datetime.now(),
         extra_note="本报告统计平台告警事件库（alert_event）中的全部告警记录；"
                    "经 Alertmanager 独立 route 分流、未回调平台的告警不在此列。",
@@ -118,43 +122,27 @@ def collect_daily(day, now=None):
 
 
 def collect_range(start_day, end_day, now=None):
-    """区间汇总（周报/月报复用）。按天聚合后再合并，保证与日报口径完全一致。"""
-    from collections import Counter
+    """区间汇总（周报/月报）：取 N 天数据 → 交给 aggregate.merge_reports 合并。
 
+    性能两处：
+      1) host_map 与 scope 只取一次传下去 —— 否则 7 天 = 7 遍 CMDB 全表
+      2) 上周对比只做一次 count()，不重复跑整周聚合
+    """
+    now = now or datetime.now()
+    host_map = fetch_host_map()
+    scope = fetch_scope()
+
+    reports = []
     day = start_day
-    merged, total_prev = [], 0
-    days = []
     while day <= end_day:
-        r = collect_daily(day, now=now)
-        days.append({"date": r["date"], "total": r["total"],
-                     "critical": sum(c for lab, c in r["severity_map"] if "critical" in lab),
-                     "categories": r["categories"]})
-        merged.append(r)
-        total_prev += r["prev_total"]
+        reports.append(collect_daily(day, now=now, host_map=host_map, scope=scope))
         day += timedelta(days=1)
 
-    agg_total = sum(r["total"] for r in merged)
-    cat_cnt, type_cnt = Counter(), Counter()
-    hourly = [0] * 24
-    for r in merged:
-        for c in r["categories"]:
-            cat_cnt[c["name"]] += c["count"]
-        for t in r["types"]:
-            type_cnt[t["alertname"]] += t["count"]
-        for h in r["hourly"]:
-            hourly[h["hour"]] += h["count"]
+    span = (end_day - start_day).days + 1
+    prev_start = start_day - timedelta(days=span)
+    prev_total = AlertEvent.objects.filter(
+        starts_at__gte=datetime.combine(prev_start, time.min),
+        starts_at__lt=datetime.combine(start_day, time.min),
+    ).count()
 
-    return {
-        "start": start_day.strftime("%Y-%m-%d"),
-        "end": end_day.strftime("%Y-%m-%d"),
-        "days": len(days),
-        "total": agg_total,
-        "daily": days,
-        "categories": [{"name": k, "count": v,
-                        "ratio": round(v * 100.0 / agg_total, 1) if agg_total else 0.0}
-                       for k, v in cat_cnt.most_common()],
-        "types": [{"alertname": k, "count": v,
-                   "ratio": round(v * 100.0 / agg_total, 1) if agg_total else 0.0}
-                  for k, v in type_cnt.most_common()],
-        "hourly": [{"hour": i, "count": c} for i, c in enumerate(hourly)],
-    }
+    return merge_reports(reports, start_day, end_day, prev_total, scope)
